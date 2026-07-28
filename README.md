@@ -37,7 +37,7 @@ Close the tab and everything is gone, except the model you chose to download.
 
 ## 🚀 Try it
 
-1. Open the page https://tesr-channel.github.io/AI_vision/
+1. Open the page https://tesr-channel.github.io/AI_vision_Trainer/
 2. The page checks your device first and tells you honestly whether it can train:
    - 🟢 GPU acceleration found (WebGL/WebGPU) — trains comfortably
    - 🟡 CPU only — works, keep datasets small
