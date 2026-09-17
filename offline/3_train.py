@@ -23,13 +23,22 @@ def main():
     ap.add_argument("--imgsz", type=int, default=640)
     args = ap.parse_args()
 
-    if not Path(args.data).exists():
-        raise SystemExit("%s not found - run 2_autolabel.py first" % args.data)
+    data = Path(args.data).resolve()
+    if not data.exists():
+        raise SystemExit("%s not found - run 2_autolabel.py, or unzip a dataset "
+                         "exported from the web trainer here" % args.data)
+
+    # Make data.yaml portable: force `path:` to the yaml's own folder, so datasets
+    # exported from the web trainer (path: .) train correctly from anywhere.
+    lines = [l for l in data.read_text(encoding="utf-8").splitlines()
+             if not l.startswith("path:")]
+    lines.insert(0, "path: %s" % data.parent.as_posix())
+    data.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     from ultralytics import YOLO   # first run downloads the base model (~6 MB)
 
     model = YOLO(args.model)
-    results = model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz)
+    results = model.train(data=str(data), epochs=args.epochs, imgsz=args.imgsz)
     best = Path(results.save_dir) / "weights" / "best.pt"
     shutil.copy2(best, "best.pt")
     print("\nDone. Best weights copied to ./best.pt")

@@ -25,6 +25,7 @@ browser**; your photos never leave your machine.
 | 🎯 **Test live** | **Precise grid scan** finds the object wherever it is (~1 fps) or **Fast** smooth box; crosshair + **center** in pixels on screen |
 | 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
 | 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
+| 🗂 **Dataset export** | One click turns your labeled photos into a ready **YOLO dataset** (images + labels + data.yaml) for offline training |
 
 ## 📏 How many photos do I need?
 
@@ -63,14 +64,26 @@ gone, except the model you chose to download.
 3. Pick **Object Detection** or **Classification** → add **2+ classes** →
    capture → (detection) draw boxes → **Train** → point the camera and enjoy
 
-## 🏭 Need production accuracy? Go offline (YOLO)
+## 🏭 Two paths — one dataset
 
-The browser trainer is built for learning, demos and quick POCs. When the box
-must be right every time — production lines, robots, multi-object scenes —
-train a real YOLO model on your own machine with the 4-step
-[**TESR Offline Trainer**](offline/): capture → **auto-label** (no manual box
-drawing — shoot on a plain background and boxes are generated for you) →
-train → run. Same workflow, production-grade results.
+Use the browser for what it does best — **collecting photos and drawing boxes** —
+then choose where to train:
+
+```mermaid
+flowchart LR
+    W[🌐 Web page<br>collect + label] --> A[🧪 Path A: train & test in browser<br>instant — perfect for learning and POC]
+    W --> B[🏭 Path B: ⬇ Download Dataset YOLO<br>python 3_train.py → 4_run.py<br>production-grade accuracy]
+```
+
+**Path A** is everything above — train, test live, export, all in the page.
+
+**Path B** — when the box must be right every time (production lines, robots,
+multi-object): press **⬇ Download Dataset (YOLO)** in step 3, unzip the
+`dataset/` folder next to the [**TESR Offline Trainer**](offline/) scripts, then
+`python 3_train.py` → `python 4_run.py`. Your hand-drawn boxes are the labels,
+so no plain background is required. (Skipping the web entirely? The offline
+trainer also has its own capture + **auto-label** scripts — see
+[offline/README.md](offline/README.md).)
 
 ## 🧠 How it works (for the curious)
 

@@ -20,10 +20,19 @@ pip install -r requirements.txt
 
 มี GPU NVIDIA = เทรนเร็วมาก · ไม่มีก็เทรนได้ด้วย CPU (ช้ากว่า แต่ได้ผลเท่ากัน)
 
+## ทางลัด: Label บนเว็บ แล้วมาเทรนที่นี่ (แนะนำ)
+
+ใช้[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)เก็บภาพ + ลากกรอบ
+(สะดวกกว่า และไม่ต้องพึ่งพื้นหลังเรียบ) แล้ว:
+
+1. กดปุ่ม **⬇ Download Dataset (YOLO)** ในหน้าเว็บ (Step 3 · Collect & Label)
+2. แตก zip แล้ววางโฟลเดอร์ `dataset/` ไว้ข้างสคริปต์เหล่านี้ (แทน Step 1–2 ด้านล่าง)
+3. `python 3_train.py` → `python 4_run.py` — จบ
+
 ## The 4 steps
 
 ```bash
-python 1_capture.py --name jetson --auto 4   # ถ่ายรูป ~100 ใบ/คลาส ขยับวัตถุไปทั่วเฟรม
+python 1_capture.py --name jetson --auto 4   # (ข้ามได้ถ้าใช้ dataset จากเว็บ) ถ่ายรูป ~100 ใบ/คลาส
 python 1_capture.py --name pi --auto 4
 python 2_autolabel.py                        # ตีกรอบอัตโนมัติ + สร้าง dataset (เติม --review ถ้าอยากตรวจทีละใบ)
 python 3_train.py                            # เทรน YOLO (GPU อัตโนมัติถ้ามี)
