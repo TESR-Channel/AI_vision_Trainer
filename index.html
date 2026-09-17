@@ -124,7 +124,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   padding:22px;max-width:620px;width:94vw}
 .mbox h3{font-weight:600;font-size:16px;margin-bottom:4px}
 .mbox .sub{color:var(--muted);font-size:13px;margin-bottom:12px}
-#lblCv{width:100%;border-radius:12px;background:#111;cursor:crosshair;display:block;touch-action:none}
+#lblCv{max-width:100%;border-radius:12px;background:#111;cursor:crosshair;display:block;touch-action:none;margin:0 auto}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}.step{width:25%}}
 </style>
 </head>
@@ -304,7 +304,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <h3 id="lblTitle">Draw a box around the object</h3>
     <p class="sub">Drag on the image to draw the box &mdash; make it tight around the object.
       <b>Enter</b> = save &amp; next &middot; <b>X</b> = clear box &middot; <b>Esc</b> = close</p>
-    <canvas id="lblCv" width="480" height="480"></canvas>
+    <canvas id="lblCv" width="560" height="420"></canvas>
     <div class="row" style="margin-top:14px">
       <button onclick="lblSaveNext()">&#10003; Save &amp; Next (Enter)</button>
       <button class="quiet" onclick="lblClear()">Clear box (X)</button>
@@ -544,13 +544,27 @@ function makeSrc(el){
   c.getContext('2d').drawImage(el, 0, 0, 224, 224);
   return c;
 }
+function natSize(el){
+  return [el.videoWidth || el.naturalWidth || el.width,
+          el.videoHeight || el.naturalHeight || el.height];
+}
+function makeDisp(el){
+  // aspect-correct, sharper copy just for viewing/labeling (model still sees 224x224)
+  const [w, h] = natSize(el);
+  const s = 448 / Math.max(w, h, 1);
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w*s)); c.height = Math.max(1, Math.round(h*s));
+  c.getContext('2d').drawImage(el, 0, 0, c.width, c.height);
+  return c;
+}
 async function addExample(clsName, el, thumbURL){
   const srcCv = makeSrc(el);
   const f = embed(srcCv);
   const feat = await f.array();
   f.dispose();
   const c = classes.find(x=>x.name===clsName);
-  c.examples.push({feat, thumb: thumbURL, src: srcCv.toDataURL('image/jpeg', .8),
+  c.examples.push({feat, thumb: thumbURL,
+                   src: makeDisp(el).toDataURL('image/jpeg', .85),
                    aug: false, box: null});
   renderClasses();
 }
@@ -605,7 +619,13 @@ function openLbl(clsName, idx){
   const e = c.examples[idx];
   lblBox = e.box ? e.box.slice() : null;
   lblImg = new Image();
-  lblImg.onload = () => { drawLbl(); };
+  lblImg.onload = () => {
+    const cv = document.getElementById('lblCv');
+    const s = Math.min(560/lblImg.width, 520/lblImg.height);
+    cv.width = Math.round(lblImg.width*s);
+    cv.height = Math.round(lblImg.height*s);
+    drawLbl();
+  };
   lblImg.src = e.src;
   document.getElementById('lblTitle').textContent =
     `Draw a box around: ${clsName}`;
