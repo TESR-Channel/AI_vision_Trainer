@@ -63,6 +63,15 @@ gone, except the model you chose to download.
 3. Pick **Object Detection** or **Classification** → add **2+ classes** →
    capture → (detection) draw boxes → **Train** → point the camera and enjoy
 
+## 🏭 Need production accuracy? Go offline (YOLO)
+
+The browser trainer is built for learning, demos and quick POCs. When the box
+must be right every time — production lines, robots, multi-object scenes —
+train a real YOLO model on your own machine with the 4-step
+[**TESR Offline Trainer**](offline/): capture → **auto-label** (no manual box
+drawing — shoot on a plain background and boxes are generated for you) →
+train → run. Same workflow, production-grade results.
+
 ## 🧠 How it works (for the curious)
 
 **MobileNet** (in-browser) turns each photo into a compact feature vector.

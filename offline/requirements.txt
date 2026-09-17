@@ -1,0 +1,3 @@
+# TESR Offline Trainer (Python 3.10 - 3.12 recommended)
+ultralytics>=8.2
+opencv-python
