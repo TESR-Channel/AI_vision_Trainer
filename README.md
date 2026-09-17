@@ -22,7 +22,7 @@ browser**; your photos never leave your machine.
 | 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). Keyboard-fast: Enter = save & next |
 | ✨ **Auto augmentation** | ×2–×5 more images in one click — boxes are transformed together with the image |
 | 🧠 **Train in seconds** | Transfer learning on your GPU (WebGL/WebGPU); detection trains a classifier + a box model |
-| 🎯 **Test live** | Box + crosshair at the object **center**, shown in pixels on screen |
+| 🎯 **Test live** | **Precise grid scan** finds the object wherever it is (~1 fps) or **Fast** smooth box; crosshair + **center** in pixels on screen |
 | 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
 | 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
 
@@ -77,8 +77,13 @@ flowchart LR
     B --> Q[📍 box + center x,y]
 ```
 
-**The honest limit:** this lightweight detector predicts **one object per
-frame** from global features — perfect for learning the full detection workflow
+**Two box modes:** *Precise* classifies 25 crops per frame and picks where your
+class scores highest — it finds the object anywhere in the frame at ~1 fps.
+*Fast* is a trained regression head — real-time and smooth, but coarser and it
+needs training photos with the object in many positions.
+
+**The honest limit:** this lightweight detector handles **one object per
+frame** — perfect for learning the full detection workflow
 (collect → label → train → deploy) and for many single-object tasks. For
 multi-object, production-grade boxes, the same workflow scales up in the
 **TESR Desktop Trainer (YOLO)**.

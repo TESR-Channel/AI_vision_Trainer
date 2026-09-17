@@ -226,7 +226,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       <span class="msg" id="augMsg" style="margin:0"></span>
     </div>
     <div class="hint" style="max-width:none;margin-top:10px">In detection mode only labeled
-    photos are augmented, and only with box-safe changes (flip, zoom, lighting).</div>
+    photos are augmented, and only with box-safe changes (zoom, lighting).</div>
   </div>
 
   <div class="card" id="trainCard">
@@ -264,6 +264,10 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
             <option value="detect">Detect &mdash; box + center</option>
             <option value="classify">Classify &mdash; whole frame</option>
           </select>
+          <select id="prec" style="width:250px" title="How the box is found">
+            <option value="grid" selected>Precise box &mdash; grid scan (~1 fps)</option>
+            <option value="fast">Fast box &mdash; smooth (coarser)</option>
+          </select>
           <select id="minConf" style="width:170px" title='Below this = "none"'>
             <option value="0.5">none if &lt;50%</option>
             <option value="0.65" selected>none if &lt;65%</option>
@@ -274,8 +278,10 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="hint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the
         frame does not <i>look like</i> any of your training photos (feature similarity, learned
         automatically at training time).</div>
-        <div class="hint" id="detHint">Detect mode shows the box, a crosshair at the object's
-        <b>center</b>, and its position in pixels &mdash; the numbers a robot arm or
+        <div class="hint" id="detHint"><b>Precise</b> scans 25 crops per frame to find the
+        object wherever it is (~1 fps); <b>Fast</b> uses the trained box model (real-time but
+        coarser &mdash; needs training photos with the object in many positions). Both show a
+        crosshair at the object's <b>center</b> in pixels &mdash; the numbers a robot arm or
         conveyor system needs. One object per frame; for multi-object production systems, use
         the TESR Desktop Trainer (YOLO).</div>
         <div class="pred" id="pred"></div>
@@ -363,6 +369,7 @@ function setTask(t){
   modeSel.style.display = (t==='detect') ? '' : 'none';
   if (t==='classify') modeSel.value = 'classify'; else modeSel.value = 'detect';
   document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
+  document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
   renderClasses();
 }
 
@@ -722,7 +729,7 @@ function augmentVariant(img, box){
   const c = document.createElement('canvas');
   c.width = 224; c.height = 224;
   const x = c.getContext('2d');
-  const flip = Math.random() < 0.5;
+  const flip = box ? false : Math.random() < 0.5;   // no flip when a box is present
   const rot = box ? 0 : (Math.random()*30 - 15) * Math.PI/180;
   const scale = 0.9 + Math.random()*0.22;
   x.fillStyle = '#727272'; x.fillRect(0,0,224,224);
@@ -837,6 +844,59 @@ async function predictEl(el){
   const thv = +document.getElementById('minConf').value;
   const none = vals[best] < thv || (sim !== null && sim < protos.thr);
   return {name: none ? 'none' : head.classNames[best], conf: vals[best], vals, box};
+}
+
+/* ============ precise grid localization ============ */
+const cropCv = document.createElement('canvas');
+cropCv.width = 224; cropCv.height = 224;
+function embedRegion(video, r){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const [cx, cy, w, h] = r;
+  cropCv.getContext('2d').drawImage(video,
+    (cx - w/2)*vw, (cy - h/2)*vh, w*vw, h*vh, 0, 0, 224, 224);
+  return embed(cropCv);
+}
+function clampRegion(r){
+  let [cx, cy, w, h] = r;
+  w = Math.min(Math.max(w, 0.05), 1); h = Math.min(Math.max(h, 0.05), 1);
+  cx = Math.min(Math.max(cx, w/2), 1 - w/2);
+  cy = Math.min(Math.max(cy, h/2), 1 - h/2);
+  return [cx, cy, w, h];
+}
+async function scoreRegion(video, r, ci){
+  const f = embedRegion(video, r);
+  const pt = tf.tidy(() => head.predict(f.expandDims(0)).squeeze());
+  const v = await pt.array(); pt.dispose(); f.dispose();
+  return v[ci];
+}
+async function gridLocate(video, ci){
+  // 25 crops: 9 coarse + 10 refine + 2 aspect \u2014 pick where the class scores highest
+  let best = null, bs = -1;
+  for (const cy of [0.25, 0.5, 0.75]) for (const cx of [0.25, 0.5, 0.75]) {
+    const r = clampRegion([cx, cy, 0.5, 0.5]);
+    const s = await scoreRegion(video, r, ci);
+    if (s > bs) { bs = s; best = r; }
+  }
+  for (const size of [0.32, 0.5])
+    for (const [dx, dy] of [[0,0],[0.12,0],[-0.12,0],[0,0.12],[0,-0.12]]) {
+      const r = clampRegion([best[0]+dx, best[1]+dy, size, size]);
+      const s = await scoreRegion(video, r, ci);
+      if (s > bs) { bs = s; best = r; }
+    }
+  for (const r0 of [[best[0], best[1], best[2]*1.3, best[3]*0.77],
+                    [best[0], best[1], best[2]*0.77, best[3]*1.3]]) {
+    const r = clampRegion(r0);
+    const s = await scoreRegion(video, r, ci);
+    if (s > bs) { bs = s; best = r; }
+  }
+  return best;
+}
+async function predictGrid(video){
+  const r0 = await predictEl(video);          // full frame: class + both none gates
+  if (r0.name === 'none') return r0;
+  const ci = head.classNames.indexOf(r0.name);
+  const box = await gridLocate(video, ci);
+  return {name: r0.name, conf: r0.conf, vals: r0.vals, box};
 }
 
 /* ============ training ============ */
@@ -999,7 +1059,9 @@ async function inferLoopW(){
     if (!video.videoWidth || video.readyState < 2) { await tf.nextFrame(); continue; }
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
-    const r = await predictEl(video);
+    const useGrid = mode === 'detect' && boxHead !== undefined &&
+                    document.getElementById('prec').value === 'grid';
+    const r = useGrid ? await predictGrid(video) : await predictEl(video);
     const vals = r.vals;
     const bars = r.name === 'none'
       ? '<div class="msg" style="margin-top:0">none \u2014 no trained object in view</div>'
@@ -1029,8 +1091,9 @@ async function inferLoopW(){
       lastLabel = r.name === 'none' ? 'none' : `${r.name} ${(100*r.conf).toFixed(0)}%`;
       document.getElementById('pred').innerHTML = bars;
     }
+    const fps = 1000/(performance.now()-t0);
     document.getElementById('fpsTag').textContent =
-      (1000/(performance.now()-t0)).toFixed(0) + ' predictions/sec';
+      fps >= 3 ? fps.toFixed(0) + ' predictions/sec' : fps.toFixed(1) + ' predictions/sec';
     await tf.nextFrame();
   }
 }
@@ -1126,6 +1189,9 @@ Run the installer in this folder - it creates a venv and installs 3 packages
 
 Detection models draw the box, a crosshair at the object center, and print
 the center in pixels - ready to feed a robot arm or a conveyor PLC.
+By default detection uses a **precise grid scan** (25 crops per frame, ~1 fps
+on CPU) that finds the object wherever it is; add \`--fast\` for the smooth
+regression box (real-time but coarser).
 When nothing it knows is in view, the answer is **"none"** and nothing is drawn.
 
 ## How "none" works (two gates)
@@ -1143,6 +1209,7 @@ Best results: also train a \`background\` class of your empty scene.
 | Option | What it does |
 |---|---|
 | \`--mode classify\` | Run a detection export as a plain classifier (\`--mode detect\` forces boxes) |
+| \`--fast\` | Detection: smooth regression box instead of the precise grid scan |
 | \`--min-conf 0.65\` | Confidence gate for "none" |
 | \`--proto-th 0.7\` | Override the similarity gate threshold |
 | \`--no-proto\` | Disable the similarity gate |
@@ -1284,7 +1351,7 @@ def decide(feat, cls_head, names, min_conf, proto):
 
 
 def open_camera(idx):
-    """Try several capture backends — MSMF on Windows is often unreliable."""
+    """Try several capture backends \u2014 MSMF on Windows is often unreliable."""
     import cv2
 
     for backend in (cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY):
@@ -1295,6 +1362,47 @@ def open_camera(idx):
                 return cap
             cap.release()
     return None
+
+
+def _clamp_region(r):
+    cx, cy, w, h = r
+    w = min(max(w, 0.05), 1.0); h = min(max(h, 0.05), 1.0)
+    cx = min(max(cx, w / 2), 1 - w / 2)
+    cy = min(max(cy, h / 2), 1 - h / 2)
+    return (cx, cy, w, h)
+
+
+def grid_locate(score_fn):
+    """Find the region whose crop scores highest for the target class.
+    25 crops total: 9 coarse + 10 refine + 2 aspect variants."""
+    best, bs = None, -1.0
+    for cy in (0.25, 0.5, 0.75):
+        for cx in (0.25, 0.5, 0.75):
+            r = _clamp_region((cx, cy, 0.5, 0.5))
+            s = score_fn(r)
+            if s > bs:
+                bs, best = s, r
+    for size in (0.32, 0.5):
+        for dx, dy in ((0, 0), (0.12, 0), (-0.12, 0), (0, 0.12), (0, -0.12)):
+            r = _clamp_region((best[0] + dx, best[1] + dy, size, size))
+            s = score_fn(r)
+            if s > bs:
+                bs, best = s, r
+    for r0 in ((best[0], best[1], best[2] * 1.3, best[3] * 0.77),
+               (best[0], best[1], best[2] * 0.77, best[3] * 1.3)):
+        r = _clamp_region(r0)
+        s = score_fn(r)
+        if s > bs:
+            bs, best = s, r
+    return list(best)
+
+
+def crop_region(rgb, r):
+    H, W = rgb.shape[:2]
+    cx, cy, w, h = r
+    x1 = max(0, int((cx - w / 2) * W)); x2 = min(W, max(x1 + 2, int((cx + w / 2) * W)))
+    y1 = max(0, int((cy - h / 2) * H)); y2 = min(H, max(y1 + 2, int((cy + h / 2) * H)))
+    return rgb[y1:y2, x1:x2]
 
 
 def draw_detection(bgr, name, conf, box):
@@ -1318,7 +1426,7 @@ def draw_detection(bgr, name, conf, box):
 
 def main():
     if sys.version_info >= (3, 13):
-        print("WARNING: Python {}.{} detected — TensorFlow may not install here.".format(
+        print("WARNING: Python {}.{} detected \u2014 TensorFlow may not install here.".format(
             sys.version_info.major, sys.version_info.minor))
         print(PY_HELP.format(v=f"{sys.version_info.major}.{sys.version_info.minor}"))
 
@@ -1327,6 +1435,9 @@ def main():
     ap.add_argument("--mode", choices=["auto", "detect", "classify"], default="auto",
                     help="auto = follow config.json; classify forces class-only; "
                          "detect requires a detection export")
+    ap.add_argument("--fast", action="store_true",
+                    help="detection: use the fast regression box (smooth but coarse) "
+                         "instead of the default precise grid scan (~1 fps)")
     ap.add_argument("--norm", choices=["zero_one", "pm1"], default=None,
                     help="pixel scaling; default comes from config.json")
     ap.add_argument("--min-conf", type=float, default=0.65,
@@ -1354,7 +1465,7 @@ def main():
     box_head = None
     if task == "detection":
         if not Path("box_model.json").exists():
-            raise SystemExit("Detection needs box_model.json but it is missing — this is a "
+            raise SystemExit("Detection needs box_model.json but it is missing \u2014 this is a "
                              "classification export; re-export a Detection project, or run "
                              "with --mode classify")
         box_head = load_head("box_model.json", "sigmoid")
@@ -1363,6 +1474,9 @@ def main():
         proto["thr"] = args.proto_th
 
     print(f"Task: {task}  |  classes: {', '.join(names)}")
+    if task == "detection":
+        print("Box mode: " + ("FAST regression (smooth, coarse)" if args.fast
+              else "PRECISE grid scan (25 crops/frame, ~1 fps; use --fast for smooth)"))
     if proto is not None:
         print(f'"none" gates: confidence < {args.min_conf}  OR  similarity < {proto["thr"]:.2f}')
     else:
@@ -1382,7 +1496,16 @@ def main():
             cv2.putText(bgr, "none", (10, 34),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (120, 120, 120), 2)
             return name, conf, None
-        box = [float(v) for v in box_head(feat[None])[0]]
+        if args.fast:
+            box = [float(v) for v in box_head(feat[None])[0]]
+        else:
+            ci = names.index(name)
+
+            def score(region):
+                f = features(backbone, crop_region(rgb, region), norm)
+                return float(cls_head(f[None])[0][ci])
+
+            box = grid_locate(score)
         px, py = draw_detection(bgr, name, conf, box)
         return name, conf, (px, py)
 
