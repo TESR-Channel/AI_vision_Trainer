@@ -938,9 +938,8 @@ function renderLoopW(){
     tv.width = video.videoWidth; tv.height = video.videoHeight;
     tx.drawImage(video, 0, 0);
     const mode = document.getElementById('mode').value;
-    if (mode === 'detect' && lastBoxW) {
-      const isNone = lastDetName === 'none';
-      const col = isNone ? '#8a857a' : '#c9a84c';
+    if (mode === 'detect' && lastBoxW && lastDetName !== 'none') {
+      const col = '#c9a84c';
       const [cx, cy, w, h] = lastBoxW;
       const x = (cx - w/2)*tv.width, y = (cy - h/2)*tv.height;
       tx.strokeStyle = col; tx.lineWidth = 3;
@@ -981,12 +980,22 @@ async function inferLoopW(){
     const mode = document.getElementById('mode').value;
     const r = await predictEl(video);
     const vals = r.vals;
-    const bars = head.classNames.map((n,i)=>`
+    const bars = r.name === 'none'
+      ? '<div class="msg" style="margin-top:0">none \u2014 no trained object in view</div>'
+      : head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
           <div class="pval">${(100*vals[i]).toFixed(1)}%</div></div>`).join('');
     if (mode === 'detect' && r.box) {
       lastDetName = r.name; lastDetConf = r.conf;
+      if (r.name === 'none') {
+        lastBoxW = null;
+        document.getElementById('pred').innerHTML = bars;
+        document.getElementById('fpsTag').textContent =
+          (1000/(performance.now()-t0)).toFixed(0) + ' predictions/sec';
+        await tf.nextFrame();
+        continue;
+      }
       lastBoxW = smoothBox(lastBoxW, r.box);
       const [cx, cy] = lastBoxW;
       const px = Math.round(cx*video.videoWidth), py = Math.round(cy*video.videoHeight);
@@ -996,9 +1005,7 @@ async function inferLoopW(){
           &nbsp;\u00b7&nbsp; center (${px}, ${py})px &nbsp;\u00b7&nbsp; (${(100*cx).toFixed(0)}%, ${(100*cy).toFixed(0)}%)
         </div></div>` + bars;
     } else {
-      lastLabel = r.name === 'none'
-        ? `none (${(100*r.conf).toFixed(0)}%)`
-        : `${r.name} ${(100*r.conf).toFixed(0)}%`;
+      lastLabel = r.name === 'none' ? 'none' : `${r.name} ${(100*r.conf).toFixed(0)}%`;
       document.getElementById('pred').innerHTML = bars;
     }
     document.getElementById('fpsTag').textContent =
