@@ -22,7 +22,7 @@ browser**; your photos never leave your machine.
 | 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). Keyboard-fast: Enter = save & next |
 | ✨ **Auto augmentation** | ×2–×5 more images in one click — boxes are transformed together with the image |
 | 🧠 **Train in seconds** | Transfer learning on your GPU (WebGL/WebGPU); detection trains a classifier + a box model |
-| 🎯 **Test live** | Box + crosshair at the object **center**, shown in pixels and percent on screen |
+| 🎯 **Test live** | Box + crosshair at the object **center**, shown in pixels on screen |
 | 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
 | 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
 
@@ -36,6 +36,10 @@ The page tracks this for you, per class, with live ✔/⚠ counters:
 | Classification | **30 photos / class** | 60+ |
 
 Variety beats quantity: change angle, distance, background and lighting.
+For detection, also **move the object around the frame** while capturing —
+corners, edges, near and far. Position variety is what teaches the box model
+*where*; photos with the object always in the same spot produce boxes stuck
+near the frame center.
 
 ## 🔒 Privacy by design
 
@@ -113,8 +117,9 @@ python predict.py --source 0        # live webcam — press q to quit
 ```
 
 `predict.py` reads `config.json`, rebuilds the same pipeline in Python, draws
-the box and crosshair, and prints the **center in pixels and percent** — ready
-to feed MQTT, a PLC, or a robot arm.
+the box and crosshair, and prints the **center in pixels** — ready
+to feed MQTT, a PLC, or a robot arm. `--mode classify` runs any detection
+export as a plain classifier.
 
 ## 📚 Learn more with TESR Academy
 

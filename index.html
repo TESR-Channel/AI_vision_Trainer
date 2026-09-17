@@ -275,7 +275,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         frame does not <i>look like</i> any of your training photos (feature similarity, learned
         automatically at training time).</div>
         <div class="hint" id="detHint">Detect mode shows the box, a crosshair at the object's
-        <b>center</b>, and its position in pixels and percent &mdash; the numbers a robot arm or
+        <b>center</b>, and its position in pixels &mdash; the numbers a robot arm or
         conveyor system needs. One object per frame; for multi-object production systems, use
         the TESR Desktop Trainer (YOLO).</div>
         <div class="pred" id="pred"></div>
@@ -350,7 +350,9 @@ function setTask(t){
       + 'You can also upload image files per class above.';
   document.getElementById('collectNote').innerHTML = t==='detect'
     ? 'Recommended: at least <b>' + REC.detect.min + ' labeled photos per class</b> ('
-      + REC.detect.good + '+ is noticeably better). Photos are converted to compact feature '
+      + REC.detect.good + '+ is noticeably better). <b>Move the object to different positions '
+      + 'in the frame</b> \u2014 corners, edges, near and far \u2014 position variety is what '
+      + 'teaches the box model WHERE, not just what. Photos are converted to compact feature '
       + 'vectors on your GPU as you capture, so training takes only seconds. Everything stays '
       + 'in this page\u2019s memory \u2014 nothing is uploaded anywhere.'
     : 'Recommended: at least <b>' + REC.classify.min + ' photos per class</b> ('
@@ -878,21 +880,20 @@ async function train(){
       const Xb = tf.tensor2d(bx);
       const Yb = tf.tensor2d(by);
       boxHead = tf.sequential({layers:[
-        tf.layers.dense({inputShape:[Xb.shape[1]], units:128, activation:'relu'}),
-        tf.layers.dropout({rate:0.2}),
+        tf.layers.dense({inputShape:[Xb.shape[1]], units:256, activation:'relu'}),
+        tf.layers.dropout({rate:0.1}),
         tf.layers.dense({units:4, activation:'sigmoid'}),   // [cx, cy, w, h]
       ]});
       boxHead.compile({optimizer: tf.train.adam(+document.getElementById('lr').value),
-                       loss:'meanSquaredError'});
+                       loss: (yT, yP) => tf.losses.huberLoss(yT, yP)});
+      const bEpochs = Math.round(epochs * 1.5);
       await boxHead.fit(Xb, Yb, {
-        epochs, batchSize: 16, shuffle: true,
+        epochs: bEpochs, batchSize: 16, shuffle: true,
         callbacks: { onEpochEnd: async (ep, logs) => {
           document.getElementById('tbar').style.width =
-            (clsShare + (100-clsShare)*(ep+1)/epochs) + '%';
-          document.getElementById('tmetrics').innerHTML +=
-            '';
+            (clsShare + (100-clsShare)*(ep+1)/bEpochs) + '%';
           document.getElementById('tmetrics').innerHTML =
-            `<span>Box model <b>${ep+1}/${epochs}</b></span>` +
+            `<span>Box model <b>${ep+1}/${bEpochs}</b></span>` +
             `<span>box loss <b>${logs.loss.toFixed(4)}</b></span>`;
           await tf.nextFrame();
         }}
@@ -955,7 +956,7 @@ function renderLoopW(){
       tx.fillRect(x, Math.max(0, y-26), tw, 26);
       tx.fillStyle = col;
       tx.fillText(label, x+7, Math.max(19, y-7));
-      const cLabel = `center (${Math.round(px)}, ${Math.round(py)})px \u00b7 (${(100*cx).toFixed(0)}%, ${(100*cy).toFixed(0)}%)`;
+      const cLabel = `center (${Math.round(px)}, ${Math.round(py)})px`;
       tw = tx.measureText(cLabel).width + 14;
       tx.fillStyle = 'rgba(20,17,12,.82)';
       tx.fillRect(8, tv.height-34, tw, 26);
@@ -1002,7 +1003,7 @@ async function inferLoopW(){
       document.getElementById('pred').innerHTML =
         `<div class="prow"><div class="pname" style="width:auto">
           \ud83d\udccd <b>${r.name}</b> ${(100*r.conf).toFixed(0)}%
-          &nbsp;\u00b7&nbsp; center (${px}, ${py})px &nbsp;\u00b7&nbsp; (${(100*cx).toFixed(0)}%, ${(100*cy).toFixed(0)}%)
+          &nbsp;\u00b7&nbsp; center (${px}, ${py})px
         </div></div>` + bars;
     } else {
       lastLabel = r.name === 'none' ? 'none' : `${r.name} ${(100*r.conf).toFixed(0)}%`;
@@ -1101,10 +1102,11 @@ Run the installer in this folder - it creates a venv and installs 3 packages
     # Windows: venv\\Scripts\\activate     Linux: source venv/bin/activate
     python predict.py --source 0            # live webcam, press q to quit
     python predict.py --source my_photo.jpg # single image
+    python predict.py --source 0 --mode classify   # detection export, class-only run
 
 Detection models draw the box, a crosshair at the object center, and print
-the center as pixels + percent - ready to feed a robot arm or a conveyor PLC.
-When nothing it knows is in view, the answer is **"none"** (see below).
+the center in pixels - ready to feed a robot arm or a conveyor PLC.
+When nothing it knows is in view, the answer is **"none"** and nothing is drawn.
 
 ## How "none" works (two gates)
 
@@ -1120,6 +1122,7 @@ Best results: also train a \`background\` class of your empty scene.
 
 | Option | What it does |
 |---|---|
+| \`--mode classify\` | Run a detection export as a plain classifier (\`--mode detect\` forces boxes) |
 | \`--min-conf 0.65\` | Confidence gate for "none" |
 | \`--proto-th 0.7\` | Override the similarity gate threshold |
 | \`--no-proto\` | Disable the similarity gate |
@@ -1133,6 +1136,10 @@ Best results: also train a \`background\` class of your empty scene.
   the camera (browser Live Test tab, Zoom, Teams). Index 2+ is often an IR camera.
 - **Everything is "none"** -> lower gates: \`--min-conf 0.5 --proto-th 0.6\`,
   and collect more varied training photos
+- **Box always sits near the frame center** -> your training photos had the
+  object in roughly the same spot every time, so the model learned "answer the
+  average". Recapture while MOVING the object around the frame - corners,
+  edges, near, far - then retrain and re-export
 - **Box position looks rough** -> this lightweight detector predicts ONE object
   per frame from global features; label more photos (60-100) with tight boxes,
   or use the TESR Desktop Trainer (YOLO) for production-grade multi-object boxes
@@ -1275,8 +1282,7 @@ def draw_detection(bgr, name, conf, box):
     import cv2
 
     H, W = bgr.shape[:2]
-    is_none = name == "none"
-    color = (140, 140, 140) if is_none else (76, 168, 201)[::-1]
+    color = (76, 168, 201)[::-1]
     cx, cy, bw, bh = box
     px, py = int(cx * W), int(cy * H)
     x1, y1 = int((cx - bw / 2) * W), int((cy - bh / 2) * H)
@@ -1285,7 +1291,7 @@ def draw_detection(bgr, name, conf, box):
     cv2.drawMarker(bgr, (px, py), color, cv2.MARKER_CROSS, 22, 2)
     cv2.putText(bgr, f"{name} {conf*100:.0f}%", (max(2, x1 + 4), max(20, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-    cv2.putText(bgr, f"center ({px}, {py})px  ({cx*100:.0f}%, {cy*100:.0f}%)",
+    cv2.putText(bgr, f"center ({px}, {py})px",
                 (8, H - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     return px, py
 
@@ -1298,6 +1304,9 @@ def main():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="0", help="image path, or 0 for webcam")
+    ap.add_argument("--mode", choices=["auto", "detect", "classify"], default="auto",
+                    help="auto = follow config.json; classify forces class-only; "
+                         "detect requires a detection export")
     ap.add_argument("--norm", choices=["zero_one", "pm1"], default=None,
                     help="pixel scaling; default comes from config.json")
     ap.add_argument("--min-conf", type=float, default=0.65,
@@ -1314,6 +1323,10 @@ def main():
     if Path("config.json").exists():
         cfg = json.loads(Path("config.json").read_text(encoding="utf-8"))
     task = cfg.get("task", "classification")
+    if args.mode == "classify":
+        task = "classification"
+    elif args.mode == "detect":
+        task = "detection"
     norm = args.norm or cfg.get("norm", "pm1")
 
     names = Path("classes.txt").read_text(encoding="utf-8").split()
@@ -1321,8 +1334,9 @@ def main():
     box_head = None
     if task == "detection":
         if not Path("box_model.json").exists():
-            raise SystemExit("config.json says detection but box_model.json is missing "
-                             "— re-export from the web trainer")
+            raise SystemExit("Detection needs box_model.json but it is missing — this is a "
+                             "classification export; re-export a Detection project, or run "
+                             "with --mode classify")
         box_head = load_head("box_model.json", "sigmoid")
     proto = None if args.no_proto else load_prototypes("prototypes.json")
     if proto is not None and args.proto_th is not None:
@@ -1343,6 +1357,10 @@ def main():
             color = (120, 120, 120) if name == "none" else (60, 200, 255)
             cv2.putText(bgr, f"{name} {conf*100:.0f}%", (10, 34),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+            return name, conf, None
+        if name == "none":
+            cv2.putText(bgr, "none", (10, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (120, 120, 120), 2)
             return name, conf, None
         box = [float(v) for v in box_head(feat[None])[0]]
         px, py = draw_detection(bgr, name, conf, box)
