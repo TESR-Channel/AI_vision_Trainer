@@ -19,7 +19,7 @@ on **your own computer inside the browser**; your photos never leave your machin
 | 📷 **Collect examples** | Hold the capture button and move the object around, or upload image files — hover any photo to delete it |
 | ✨ **Auto augmentation** | One click generates ×2–×5 more images (flips, rotations, lighting) right in the browser |
 | 🧠 **Train in seconds** | Transfer learning runs on your GPU via WebGL/WebGPU — typically under 10 seconds |
-| 🎯 **Test live** | Two modes: **Classify** the whole frame, or **Detect** — boxes drawn around objects, each labeled with *your* classes |
+| 🎯 **Test live** | Two modes: **Classify** the whole frame, or **Detect** — boxes drawn around objects, each labeled with *your* classes. Adjustable box **sensitivity**, and when confidence is low the answer is **"none"** instead of a wrong guess |
 | 💾 **Export** | One .zip with your model **plus a ready-to-run Python sample** — use it on your PC from an image or webcam |
 
 ## 🔒 Privacy by design
@@ -46,6 +46,18 @@ Close the tab and everything is gone, except the model you chose to download.
 
 **Tips for good results:** vary the angle, distance, background and lighting while
 capturing. Add a "background / none" class so the AI knows what *nothing* looks like.
+
+## 🎯 The "none" answer
+
+A classifier always picks *some* class — so when it is not confident enough, this
+app answers **"none"** instead of a wrong guess. Choose the threshold in the Test
+card (none if &lt;50% / 65% / 80%). For best results, also add a "background"
+class with photos of your empty scene.
+
+In **Detect** mode you can also adjust the box **sensitivity**: boxes come from a
+general-purpose detector (COCO-SSD), so everyday objects work best — unusual
+custom objects may get no box at all; that is the honest limit of in-browser
+detection today.
 
 ## 🖥 Requirements
 
@@ -80,11 +92,13 @@ requirements.txt           the Python libraries it needs
 README_PYTHON.md           step-by-step instructions
 ```
 
-Quick start on your computer (Python 3.9–3.11):
+Quick start on your computer (**Python 3.10–3.12** — TensorFlow does not support
+3.13/3.14 yet; on new Ubuntu releases create a venv with `python3.12 -m venv venv` first,
+as explained step by step in `README_PYTHON.md`):
 
 ```bash
 unzip tesr-web-model.zip -d my-model && cd my-model
-pip install -r requirements.txt        # just 4 packages: tensorflow, tensorflow_hub, numpy, opencv-python
+pip install -r requirements.txt        # just 3 packages: tensorflow, numpy, opencv-python
 python predict.py --source photo.jpg   # single image
 python predict.py --source 0           # live webcam — press q to quit
 ```
@@ -94,8 +108,9 @@ features. `predict.py` rebuilds that same two-stage pipeline in Python — the
 MobileNet backbone downloads automatically on first run (~10 MB, cached), and
 your head weights are read directly from `weights.bin` with NumPy (no converter
 library needed, so installation stays light and conflict-free).
-If predictions ever look wrong, run with `--norm pm1` (switches between the two
-common MobileNet pixel-scaling conventions).
+Low-confidence answers become **"none"** (tune with `--min-conf`), and if
+predictions ever look wrong, run with `--norm zero_one` (switches between the
+two common MobileNet pixel-scaling conventions).
 
 ## 📚 Learn more with TESR Academy
 

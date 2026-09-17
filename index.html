@@ -228,12 +228,28 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
             <option value="classify">Classify — whole frame</option>
             <option value="detect">Detect — boxes + your classes</option>
           </select>
+          <select id="sensSel" style="width:190px" title="Box sensitivity"
+            onchange="lastDetsW=[];">
+            <option value="0.2">Sensitive — more boxes</option>
+            <option value="0.35" selected>Normal</option>
+            <option value="0.5">Strict — fewer boxes</option>
+          </select>
+          <select id="minConf" style="width:170px" title='Below this = "none"'>
+            <option value="0.5">none if &lt;50%</option>
+            <option value="0.65" selected>none if &lt;65%</option>
+            <option value="0.8">none if &lt;80%</option>
+          </select>
           <span class="tag" id="fpsTag"></span>
         </div>
-        <div class="hint" id="modeHint">Detect mode: a general-purpose detector (COCO-SSD, running
+        <div class="hint" id="modeHint">When the AI is not confident enough it answers
+        <b>"none"</b> instead of guessing (threshold selectable above). Tip: adding a
+        "background" class with photos of your empty scene makes "none" even more reliable.
+        </div>
+        <div class="hint">Detect mode: a general-purpose detector (COCO-SSD, running
         in your browser) finds objects and draws boxes; your freshly trained classifier names
         each box with YOUR classes. Works best with everyday objects the detector already
-        recognizes (bottles, phones, boxes, tools, people...).</div>
+        recognizes (bottles, phones, boxes, tools, people...) — if your object gets no box,
+        lower the sensitivity setting.</div>
         <div class="pred" id="pred"></div>
       </div>
       <div>
@@ -601,6 +617,9 @@ async function classifyCrop(video, box){
   const vals = await p.array(); p.dispose();
   let best = 0;
   for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
+  const th = +document.getElementById('minConf').value;
+  // softmax always picks SOME class — below the threshold we answer "none"
+  if (vals[best] < th) return {name: 'none', conf: vals[best]};
   return {name: head.classNames[best], conf: vals[best]};
 }
 
@@ -639,14 +658,15 @@ function renderLoopW(){
         const [x1, y1, x2, y2] = d.box;
         const x = x1*tv.width, y = y1*tv.height,
               w = (x2-x1)*tv.width, h = (y2-y1)*tv.height;
-        tx.strokeStyle = '#c9a84c'; tx.lineWidth = 3;
+        const boxCol = d.name === 'none' ? '#8a857a' : '#c9a84c';
+        tx.strokeStyle = boxCol; tx.lineWidth = 3;
         tx.strokeRect(x, y, w, h);
         const label = `${d.name} ${(100*d.conf).toFixed(0)}%`;
         tx.font = '18px Kanit, sans-serif';
         const tw = tx.measureText(label).width + 14;
         tx.fillStyle = 'rgba(20,17,12,.82)';
         tx.fillRect(x, Math.max(0, y-26), tw, 26);
-        tx.fillStyle = '#c9a84c';
+        tx.fillStyle = boxCol;
         tx.fillText(label, x+7, Math.max(19, y-7));
       }
     } else if (lastLabel) {
@@ -675,7 +695,8 @@ async function inferLoopW(){
         document.getElementById('fpsTag').textContent = 'Loading detector (~6 MB, once)...';
         detector = await cocoSsd.load({base:'lite_mobilenet_v2'});
       }
-      const dets = (await detector.detect(video)).filter(d => d.score > 0.45);
+      const minScore = +document.getElementById('sensSel').value;
+      const dets = (await detector.detect(video)).filter(d => d.score > minScore);
       const out = [];
       const W = video.videoWidth, H = video.videoHeight;
       for (const d of dets.slice(0, 6)) {          // cap per-frame work
@@ -686,14 +707,18 @@ async function inferLoopW(){
       lastDetsW = smoothDetsW(lastDetsW, out);
       document.getElementById('pred').innerHTML = lastDetsW.length
         ? lastDetsW.map(d => `<div class="prow"><div class="pname" style="width:auto">📦 ${d.name} ${(100*d.conf).toFixed(0)}%</div></div>`).join('')
-        : '<div class="msg">No objects found in frame — try moving closer, '
-          + 'adding light, or switching to Classify mode.</div>';
+        : '<div class="msg">No boxes yet — set sensitivity to "Sensitive", move closer, add light. '
+          + 'Boxes come from a general detector: objects it has never seen may get no box at all '
+          + '(that is the limit of in-browser detection) — Classify mode still works for them.</div>';
     } else {
       const p = tf.tidy(() => head.predict(embed(video).expandDims(0)).squeeze());
       const vals = await p.array(); p.dispose();
       let best = 0;
       for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
-      lastLabel = `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
+      const th = +document.getElementById('minConf').value;
+      lastLabel = vals[best] < th
+        ? `none (${(100*vals[best]).toFixed(0)}%)`
+        : `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
       document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
@@ -706,9 +731,243 @@ async function inferLoopW(){
 }
 
 /* ============ export ============ */
-const PY_REQS = '# TESR Web Trainer - Python inference requirements (minimal set)\ntensorflow>=2.15\nnumpy\nopencv-python\n';
-const PY_README = '# Use your TESR web-trained model in Python\n\nYour model has two parts, exactly like in the browser:\n1. MobileNet backbone (built into TensorFlow, weights auto-download on first run)\n   turns an image into a feature vector\n2. Your trained head (model.json + weights.bin) turns that vector into YOUR classes -\n   read directly with NumPy, no extra library needed\n\n## 1) Install (Python 3.10-3.12)\n\nRecommended: use a clean virtual environment so nothing conflicts\n\n    python -m venv venv\n    venv\\Scripts\\activate          (Windows)   |   source venv/bin/activate  (Linux/macOS)\n    pip install -r requirements.txt\n\nNote: tensorflow is a large download (~300-500 MB). First run also downloads the\nMobileNet backbone (~10 MB) and caches it.\n\n## 2) Run\n\n    python predict.py --source my_photo.jpg     # single image\n    python predict.py --source 0                # live webcam (press q to quit)\n\nExpected output: the predicted class with a confidence percentage\n(and an overlay window in webcam mode).\n\n## Troubleshooting\n\n- Predictions look random/wrong: run with `--norm zero_one` (switches the pixel\n  scaling convention between [-1,1] and [0,1] - the two common MobileNet styles)\n- pip dependency conflicts: make sure you are inside the venv above; this\n  requirements set has only 3 packages and resolves cleanly\n- Webcam will not open: try `--source 1` or use an image file\n- Slow on first prediction: normal - TensorFlow warms up, later frames are fast\n';
-const PY_CODE = '"""Run a TESR AI Vision Web Trainer model in Python.\n\nThe browser trained a small head on top of MobileNet features. This script\nrebuilds the same two-stage pipeline in Python:\n  image -> MobileNetV2 (0.5, 224) feature vector -> your trained head -> class\n\nThe head (model.json + weights.bin) is read directly with NumPy, and the\nMobileNet backbone comes from TensorFlow itself (keras.applications) — so\nneither \'tensorflowjs\' nor \'tensorflow_hub\' is needed.\n\nInstall:  pip install -r requirements.txt\nRun:      python predict.py --source photo.jpg\n          python predict.py --source 0            # webcam, press q to quit\nIf predictions look wrong, try:  --norm zero_one\n"""\nimport argparse\nimport json\nfrom pathlib import Path\n\nimport numpy as np\n\ndef load_head(model_json_path):\n    """Read a TensorFlow.js LayersModel (dense head) directly with NumPy.\n\n    weights.bin is a plain concatenation of float32 arrays in the order\n    listed in model.json\'s weightsManifest — no special library required.\n    """\n    model_json_path = Path(model_json_path)\n    spec = json.loads(model_json_path.read_text(encoding="utf-8"))\n    manifest = spec["weightsManifest"][0]\n    bin_path = model_json_path.parent / manifest["paths"][0]\n    data = np.fromfile(bin_path, dtype=np.float32)\n\n    arrays, offset = [], 0\n    for w in manifest["weights"]:\n        if w.get("dtype", "float32") != "float32":\n            raise SystemExit(f"Unexpected weight dtype: {w}")\n        n = int(np.prod(w["shape"]))\n        arrays.append(data[offset:offset + n].reshape(w["shape"]))\n        offset += n\n    if offset != data.size:\n        raise SystemExit("weights.bin size does not match model.json manifest")\n\n    # Head structure from the web trainer: dense(relu) -> dropout -> dense(softmax)\n    # Dropout has no weights, so the file holds: W1, b1, W2, b2\n    if len(arrays) != 4:\n        raise SystemExit(f"Expected 4 weight arrays (W1,b1,W2,b2), got {len(arrays)}")\n    W1, b1, W2, b2 = arrays\n\n    def head(x):\n        h = np.maximum(x @ W1 + b1, 0.0)          # dense + relu\n        z = h @ W2 + b2                            # dense (logits)\n        e = np.exp(z - z.max(axis=-1, keepdims=True))\n        return e / e.sum(axis=-1, keepdims=True)   # softmax\n\n    return head\n\n\ndef load_backbone():\n    import tensorflow as tf\n\n    print("Loading MobileNetV2 backbone (first run downloads ~10 MB, then cached)...")\n    # Same MobileNetV2 (alpha 0.5, 224px) family the browser used, with\n    # global average pooling -> a 1280-dim feature vector per image\n    return tf.keras.applications.MobileNetV2(\n        input_shape=(224, 224, 3), alpha=0.5,\n        include_top=False, pooling="avg", weights="imagenet")\n\n\ndef preprocess(rgb, norm):\n    import cv2\n\n    img = cv2.resize(rgb, (224, 224)).astype("float32")\n    if norm == "pm1":\n        img = img / 127.5 - 1.0\n    else:\n        img = img / 255.0\n    return img[None, ...]\n\n\ndef predict(backbone, head, rgb, norm, names):\n    x = preprocess(rgb, norm)\n    feat = np.asarray(backbone(x, training=False))  # (1, 1280) feature vector\n    probs = head(feat)[0]\n    i = int(np.argmax(probs))\n    return names[i], float(probs[i])\n\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument("--model", default="model.json")\n    ap.add_argument("--classes", default="classes.txt")\n    ap.add_argument("--source", default="0", help="image path, or 0 for webcam")\n    ap.add_argument("--norm", choices=["zero_one", "pm1"], default="pm1")\n    args = ap.parse_args()\n\n    import cv2\n\n    names = Path(args.classes).read_text(encoding="utf-8").split()\n    head = load_head(args.model)\n    backbone = load_backbone()\n\n    if not args.source.isdigit():\n        bgr = cv2.imread(args.source)\n        if bgr is None:\n            raise SystemExit("Could not read image: " + args.source)\n        name, conf = predict(backbone, head,\n                             cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), args.norm, names)\n        print("Prediction: {}  ({:.1f}%)".format(name, conf * 100))\n        return\n\n    cap = cv2.VideoCapture(int(args.source))\n    if not cap.isOpened():\n        raise SystemExit("Could not open camera " + args.source)\n    try:\n        while True:\n            ok, bgr = cap.read()\n            if not ok:\n                break\n            name, conf = predict(backbone, head,\n                                 cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),\n                                 args.norm, names)\n            cv2.putText(bgr, "{} {:.0f}%".format(name, conf * 100), (10, 34),\n                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 200, 255), 2)\n            cv2.imshow("TESR Web Model - Python", bgr)\n            if cv2.waitKey(1) & 0xFF == ord("q"):\n                break\n    finally:\n        cap.release()          # always release the camera on exit\n        cv2.destroyAllWindows()\n\n\nif __name__ == "__main__":\n    main()\n';
+const PY_REQS = `# TESR Web Trainer - Python inference requirements (Python 3.10 - 3.12)
+tensorflow>=2.15
+numpy
+opencv-python
+`;
+const PY_README = `# Use your TESR web-trained model in Python
+
+Your model has two parts, exactly like in the browser:
+1. **MobileNet backbone** (built into TensorFlow, weights auto-download on first run)
+2. **Your trained head** (\`model.json\` + \`weights.bin\`) - read directly with NumPy
+
+## Step 1 - Check your Python version (important!)
+
+TensorFlow supports **Python 3.10 - 3.12**. Check yours:
+
+    python --version
+
+If you have Python 3.13 / 3.14 (e.g. new Ubuntu releases), create a venv
+with Python 3.12 instead:
+
+    # Ubuntu / Debian
+    sudo apt install python3.12 python3.12-venv
+    python3.12 -m venv venv
+    source venv/bin/activate
+
+    # Windows (install 3.12 from python.org first)
+    py -3.12 -m venv venv
+    venv\\Scripts\\activate
+
+## Step 2 - Install (once)
+
+    pip install -r requirements.txt
+
+Only 3 packages: tensorflow, numpy, opencv-python (~500 MB total).
+
+## Step 3 - Run
+
+    python predict.py --source my_photo.jpg     # single image
+    python predict.py --source 0                # live webcam, press q to quit
+
+You should see the class name + confidence. When nothing it knows is in
+front of the camera, it answers **"none"** instead of guessing.
+
+## Useful options
+
+| Option | What it does |
+|---|---|
+| \`--min-conf 0.65\` | Below this confidence the answer is "none" (raise it to be stricter) |
+| \`--norm zero_one\` | Try this if predictions look wrong (pixel-scaling convention) |
+| \`--source 1\` | Try other camera indices if the camera will not open |
+
+## Troubleshooting
+
+- **"TensorFlow is not installed for this Python"** - follow Step 1 (venv with 3.12)
+- **Camera will not open** - try \`--source 0\` / \`--source 1\`; close apps using the
+  camera (browser Live Test tab, Zoom, Teams). Index 2+ is often an IR camera.
+- **Everything answers "none"** - lower \`--min-conf 0.5\`, or collect more varied
+  training photos in the web trainer
+- **Slow first prediction** - normal, TensorFlow warms up; later frames are fast
+`;
+const PY_CODE = `"""Run a TESR AI Vision Web Trainer model in Python.
+
+The browser trained a small head on top of MobileNet features. This script
+rebuilds the same two-stage pipeline in Python:
+  image -> MobileNetV2 (0.5, 224) feature vector -> your trained head -> class
+
+The head (model.json + weights.bin) is read directly with NumPy, and the
+MobileNet backbone comes from TensorFlow itself (keras.applications).
+
+Install:  pip install -r requirements.txt   (Python 3.10 - 3.12, see README)
+Run:      python predict.py --source photo.jpg
+          python predict.py --source 0            # webcam, press q to quit
+Options:  --min-conf 0.65   confidence below this prints "none"
+          --norm zero_one   try this if predictions look wrong
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+
+PY_HELP = """
+TensorFlow does not support Python {v} yet (it supports 3.10 - 3.12).
+Fix: create a virtual environment with Python 3.12 and install there.
+
+  Ubuntu / Debian:
+      sudo apt install python3.12 python3.12-venv
+      python3.12 -m venv venv && source venv/bin/activate
+      pip install -r requirements.txt
+
+  Windows:
+      install Python 3.12 from python.org, then:
+      py -3.12 -m venv venv && venv\\\\Scripts\\\\activate
+      pip install -r requirements.txt
+"""
+
+
+def load_head(model_json_path):
+    """Read a TensorFlow.js LayersModel (dense head) directly with NumPy."""
+    model_json_path = Path(model_json_path)
+    spec = json.loads(model_json_path.read_text(encoding="utf-8"))
+    manifest = spec["weightsManifest"][0]
+    bin_path = model_json_path.parent / manifest["paths"][0]
+    data = np.fromfile(bin_path, dtype=np.float32)
+
+    arrays, offset = [], 0
+    for w in manifest["weights"]:
+        if w.get("dtype", "float32") != "float32":
+            raise SystemExit(f"Unexpected weight dtype: {w}")
+        n = int(np.prod(w["shape"]))
+        arrays.append(data[offset:offset + n].reshape(w["shape"]))
+        offset += n
+    if offset != data.size:
+        raise SystemExit("weights.bin size does not match model.json manifest")
+    if len(arrays) != 4:
+        raise SystemExit(f"Expected 4 weight arrays (W1,b1,W2,b2), got {len(arrays)}")
+    W1, b1, W2, b2 = arrays
+
+    def head(x):
+        h = np.maximum(x @ W1 + b1, 0.0)
+        z = h @ W2 + b2
+        e = np.exp(z - z.max(axis=-1, keepdims=True))
+        return e / e.sum(axis=-1, keepdims=True)
+
+    return head
+
+
+def load_backbone():
+    try:
+        import tensorflow as tf
+    except ModuleNotFoundError:
+        raise SystemExit("TensorFlow is not installed for this Python ({}.{}).\\n{}".format(
+            sys.version_info.major, sys.version_info.minor,
+            PY_HELP.format(v=f"{sys.version_info.major}.{sys.version_info.minor}")))
+
+    print("Loading MobileNetV2 backbone (first run downloads ~10 MB, then cached)...")
+    return tf.keras.applications.MobileNetV2(
+        input_shape=(224, 224, 3), alpha=0.5,
+        include_top=False, pooling="avg", weights="imagenet")
+
+
+def preprocess(rgb, norm):
+    import cv2
+
+    img = cv2.resize(rgb, (224, 224)).astype("float32")
+    if norm == "pm1":
+        img = img / 127.5 - 1.0
+    else:
+        img = img / 255.0
+    return img[None, ...]
+
+
+def predict(backbone, head, rgb, norm, names, min_conf):
+    x = preprocess(rgb, norm)
+    feat = np.asarray(backbone(x, training=False))
+    probs = head(feat)[0]
+    i = int(np.argmax(probs))
+    conf = float(probs[i])
+    # Softmax always picks SOME class — below the threshold we answer "none"
+    name = names[i] if conf >= min_conf else "none"
+    return name, conf
+
+
+def open_camera(idx):
+    """Try several capture backends — MSMF on Windows is often unreliable."""
+    import cv2
+
+    for backend in (cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY):
+        cap = cv2.VideoCapture(idx, backend)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                return cap
+            cap.release()
+    return None
+
+
+def main():
+    if sys.version_info >= (3, 13):
+        print("WARNING: Python {}.{} detected — TensorFlow may not install here.".format(
+            sys.version_info.major, sys.version_info.minor))
+        print(PY_HELP.format(v=f"{sys.version_info.major}.{sys.version_info.minor}"))
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="model.json")
+    ap.add_argument("--classes", default="classes.txt")
+    ap.add_argument("--source", default="0", help="image path, or 0 for webcam")
+    ap.add_argument("--norm", choices=["zero_one", "pm1"], default="pm1")
+    ap.add_argument("--min-conf", type=float, default=0.65,
+                    help='below this confidence the answer is "none" (default 0.65)')
+    args = ap.parse_args()
+
+    import cv2
+
+    names = Path(args.classes).read_text(encoding="utf-8").split()
+    head = load_head(args.model)
+    backbone = load_backbone()
+
+    if not args.source.isdigit():
+        bgr = cv2.imread(args.source)
+        if bgr is None:
+            raise SystemExit("Could not read image: " + args.source)
+        name, conf = predict(backbone, head,
+                             cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),
+                             args.norm, names, args.min_conf)
+        print("Prediction: {}  ({:.1f}%)".format(name, conf * 100))
+        return
+
+    cap = open_camera(int(args.source))
+    if cap is None:
+        raise SystemExit(
+            "Could not open camera " + args.source + ".\\n"
+            "- Try other indices: --source 0, --source 1 (index 2+ is often an IR/virtual camera)\\n"
+            "- Close any app that is using the camera (browser Live Test tab, Zoom, Teams...)")
+    try:
+        while True:
+            ok, bgr = cap.read()
+            if not ok:
+                break
+            name, conf = predict(backbone, head,
+                                 cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),
+                                 args.norm, names, args.min_conf)
+            color = (120, 120, 120) if name == "none" else (60, 200, 255)
+            cv2.putText(bgr, "{} {:.0f}%".format(name, conf * 100), (10, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+            cv2.imshow("TESR Web Model - Python", bgr)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    finally:
+        cap.release()          # always release the camera on exit
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
+`;
 
 async function exportModel(){
   if (!head) return;
