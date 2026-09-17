@@ -1,17 +1,22 @@
 """TESR Offline Trainer - Step 4: Run your trained YOLO model.
 
+Works with both tasks - it reads the task from best.pt automatically:
+  detection      -> boxes + crosshair + CENTER (x, y)px, multi-object
+  classification -> class name + confidence for the whole frame
+
 Usage:
     python 4_run.py                        # live webcam, press q to quit
     python 4_run.py --source photo.jpg     # single image
     python 4_run.py --conf 0.6             # stricter confidence
 
-Draws every detected object with its box, a crosshair at the CENTER,
-and prints "name center=(x, y)px conf=.." - the numbers a robot arm,
-conveyor PLC, or MQTT pipeline needs. Multi-object, real-time.
+Detection prints "name center=(x, y)px conf=.." - the numbers a robot arm,
+conveyor PLC, or MQTT pipeline needs.
 """
 import argparse
 
 import cv2
+
+COLOR = (76, 168, 201)[::-1]
 
 
 def open_camera(idx):
@@ -25,25 +30,35 @@ def open_camera(idx):
     return None
 
 
-def draw(frame, result, conf_min):
-    names = result.names
+def annotate(frame, result, task, conf_min):
+    """Draw predictions on the frame; return the lines to print."""
     out = []
+    if task == "classify":
+        p = result.probs
+        name = result.names[int(p.top1)]
+        conf = float(p.top1conf)
+        if conf < conf_min:
+            name = "none"
+        cv2.putText(frame, "%s %.0f%%" % (name, conf * 100), (10, 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                    (120, 120, 120) if name == "none" else COLOR, 2)
+        out.append("%s conf=%.2f" % (name, conf))
+        return out
     for b in result.boxes:
         conf = float(b.conf[0])
         if conf < conf_min:
             continue
         x1, y1, x2, y2 = (int(v) for v in b.xyxy[0])
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        name = names[int(b.cls[0])]
-        color = (76, 168, 201)[::-1]
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.drawMarker(frame, (cx, cy), color, cv2.MARKER_CROSS, 22, 2)
+        name = result.names[int(b.cls[0])]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR, 2)
+        cv2.drawMarker(frame, (cx, cy), COLOR, cv2.MARKER_CROSS, 22, 2)
         cv2.putText(frame, "%s %.0f%%" % (name, conf * 100),
                     (max(2, x1 + 4), max(20, y1 - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR, 2)
         cv2.putText(frame, "(%d, %d)px" % (cx, cy), (max(2, x1 + 4), y2 + 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        out.append((name, cx, cy, conf))
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR, 2)
+        out.append("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
     return out
 
 
@@ -57,15 +72,17 @@ def main():
     from ultralytics import YOLO
 
     model = YOLO(args.weights)
+    task = "classify" if getattr(model, "task", "") == "classify" else "detect"
+    print("Task: %s  |  classes: %s" % (task, ", ".join(model.names.values())))
 
     if not args.source.isdigit():
         frame = cv2.imread(args.source)
         if frame is None:
             raise SystemExit("Could not read image: " + args.source)
-        dets = draw(frame, model(frame, verbose=False)[0], args.conf)
-        for name, cx, cy, conf in dets:
-            print("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
-        if not dets:
+        lines = annotate(frame, model(frame, verbose=False)[0], task, args.conf)
+        for ln in lines:
+            print(ln)
+        if not lines:
             print("none - no trained object found")
         cv2.imshow("TESR YOLO (press any key)", frame)
         cv2.waitKey(0)
@@ -81,9 +98,8 @@ def main():
             ok, frame = cap.read()
             if not ok:
                 break
-            dets = draw(frame, model(frame, verbose=False)[0], args.conf)
-            for name, cx, cy, conf in dets:
-                print("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
+            for ln in annotate(frame, model(frame, verbose=False)[0], task, args.conf):
+                print(ln)
             cv2.imshow("TESR YOLO - press q to quit", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break

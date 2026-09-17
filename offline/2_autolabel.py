@@ -1,15 +1,21 @@
-"""TESR Offline Trainer - Step 2: AUTO-label + build the YOLO dataset.
+"""TESR Offline Trainer - Step 2: build the dataset (detection or classification).
 
-No more drawing boxes by hand. For photos taken on a PLAIN background,
-this script finds the object automatically (Otsu threshold -> largest
-contour) and writes YOLO labels + data.yaml, split into train/val.
+DETECTION (default) - AUTO-label, no more drawing boxes by hand:
+    For photos taken on a PLAIN background this script finds the object
+    automatically (Otsu threshold -> largest contour) and writes YOLO labels
+    + data.yaml, split into train/val. Photos where no clean object is found
+    go to dataset/needs_review/ - re-shoot those on a plainer background.
 
-Usage:
-    python 2_autolabel.py                # label everything in dataset/raw
-    python 2_autolabel.py --review       # preview each box (ENTER=ok, s=skip, q=quit)
+        python 2_autolabel.py
+        python 2_autolabel.py --review   # preview each box (ENTER=ok, s=skip, q=quit)
 
-Photos where no clean object is found go to dataset/needs_review/ -
-re-shoot those on a plainer background, or label them manually later.
+CLASSIFICATION - no boxes at all:
+    Just organizes your photos into the train/val folder layout YOLO
+    classification expects. Any background is fine.
+
+        python 2_autolabel.py --task classify
+
+Then:  python 3_train.py   (it detects the task automatically)
 """
 import argparse
 import shutil
@@ -52,6 +58,8 @@ def main():
     ap.add_argument("--out", default="dataset")
     ap.add_argument("--val", type=float, default=0.15, help="validation share")
     ap.add_argument("--review", action="store_true", help="preview every box")
+    ap.add_argument("--task", choices=["detect", "classify"], default="detect",
+                    help="detect = auto-label boxes (default); classify = folders only")
     args = ap.parse_args()
 
     raw = Path(args.raw)
@@ -61,12 +69,29 @@ def main():
     print("Classes:", ", ".join("%d=%s" % (i, c) for i, c in enumerate(classes)))
 
     out = Path(args.out)
+    every = max(2, round(1 / args.val)) if args.val > 0 else 0   # every Nth image -> val
+
+    if args.task == "classify":
+        done = 0
+        for cls in classes:
+            for split in ("train", "val"):
+                (out / split / cls).mkdir(parents=True, exist_ok=True)
+            kept = 0
+            for p in sorted((raw / cls).glob("*.jpg")) + sorted((raw / cls).glob("*.png")):
+                split = "val" if (every and kept % every == 0) else "train"
+                kept += 1
+                shutil.copy2(p, out / split / cls / p.name)
+                done += 1
+        print("Classification dataset ready: %d photos, %d classes -> %s"
+              % (done, len(classes), out))
+        print("Next:  python 3_train.py")
+        return
+
     for split in ("train", "val"):
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
         (out / "labels" / split).mkdir(parents=True, exist_ok=True)
     review_dir = out / "needs_review"
 
-    every = max(2, round(1 / args.val)) if args.val > 0 else 0   # every Nth image -> val
     done, failed = 0, 0
     for ci, cls in enumerate(classes):
         imgs = sorted((raw / cls).glob("*.jpg")) + sorted((raw / cls).glob("*.png"))

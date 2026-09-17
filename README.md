@@ -25,7 +25,7 @@ browser**; your photos never leave your machine.
 | 🎯 **Test live** | **Precise grid scan** finds the object wherever it is (~1 fps) or **Fast** smooth box; crosshair + **center** in pixels on screen |
 | 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
 | 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
-| 🗂 **Dataset export** | One click turns your labeled photos into a ready **YOLO dataset** (images + labels + data.yaml) for offline training |
+| 🗂 **Dataset export** | One click turns your photos into a ready **YOLO dataset** for offline training — detection (images + labels + data.yaml) or classification (folder per class), matching your chosen task |
 
 ## 📏 How many photos do I need?
 
@@ -80,8 +80,10 @@ flowchart LR
 **Path B** — when the box must be right every time (production lines, robots,
 multi-object): press **⬇ Download Dataset (YOLO)** in step 3, unzip the
 `dataset/` folder next to the [**TESR Offline Trainer**](offline/) scripts, then
-`python 3_train.py` → `python 4_run.py`. Your hand-drawn boxes are the labels,
-so no plain background is required. (Skipping the web entirely? The offline
+`python 3_train.py` → `python 4_run.py`. Works for **both tasks** — the zip
+matches your chosen task (detection or classification) and `3_train.py` detects
+it automatically. For detection, your hand-drawn boxes are the labels, so no
+plain background is required. (Skipping the web entirely? The offline
 trainer also has its own capture + **auto-label** scripts — see
 [offline/README.md](offline/README.md).)
 

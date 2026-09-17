@@ -379,8 +379,14 @@ function setTask(t){
   if (t==='classify') modeSel.value = 'classify'; else modeSel.value = 'detect';
   document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
   document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
-  document.getElementById('btnDs').style.display = t==='detect' ? '' : 'none';
-  document.getElementById('dsHint').style.display = t==='detect' ? '' : 'none';
+  document.getElementById('dsHint').innerHTML = t==='detect'
+    ? 'Your labeled photos as a ready-to-train <b>YOLO detection dataset</b> (images + '
+      + 'labels + data.yaml). Train it offline with <code>offline/3_train.py</code> for '
+      + 'production-grade boxes \u2014 your hand-drawn boxes are the labels, so no plain '
+      + 'background is needed. Generated \u2728 photos are excluded; YOLO augments during training.'
+    : 'Your photos as a ready-to-train <b>YOLO classification dataset</b> (one folder per '
+      + 'class). Train it offline with <code>offline/3_train.py</code> \u2014 the task is '
+      + 'detected automatically. Generated \u2728 photos are excluded; YOLO augments during training.';
   renderClasses();
 }
 
@@ -1113,7 +1119,9 @@ async function inferLoopW(){
 const DS_README = `# Train this dataset offline with YOLO (production-grade)
 
 This zip was exported from the TESR AI Vision Web Trainer.
-Your hand-drawn boxes are already converted to YOLO labels.
+It already has the correct YOLO layout for its task:
+  detection      -> images/ + labels/ + data.yaml  (your hand-drawn boxes)
+  classification -> train/<class>/ + val/<class>/  (one folder per class)
 
 1. Get the offline trainer (one time):
    https://github.com/TESR-Channel/AI_vision_Trainer/tree/main/offline
@@ -1121,20 +1129,24 @@ Your hand-drawn boxes are already converted to YOLO labels.
    (same place as 3_train.py). It replaces steps 1-2.
 3. Install once (Python 3.10-3.12):
        pip install -r requirements.txt
-4. Train:
+4. Train (the task is detected automatically):
        python 3_train.py
-5. Run live (accurate box + center, multi-object, real-time):
+5. Run live (the model remembers its task):
        python 4_run.py
 
 GPU (NVIDIA) trains in minutes; CPU also works, just slower.
-Layout: images/train|val + labels/train|val + data.yaml. The path inside
-data.yaml is fixed automatically by 3_train.py, so this zip works anywhere.
+Paths inside the dataset are fixed automatically by 3_train.py,
+so this zip works anywhere.
 `;
 async function exportDataset(){
   const m = document.getElementById('dsMsg');
-  const names = classes.filter(c => c.examples.some(e => e.box && !e.aug)).map(c => c.name);
+  const wantBox = task === 'detect';
+  const pickOk = e => !e.aug && (!wantBox || e.box);
+  const names = classes.filter(c => c.examples.some(pickOk)).map(c => c.name);
   if (!names.length){
-    m.textContent = 'Label some photos first (draw boxes in the detection task).';
+    m.textContent = wantBox
+      ? 'Label some photos first (draw boxes in the detection task).'
+      : 'Collect some photos first.';
     return;
   }
   m.textContent = 'Building dataset zip...';
@@ -1146,22 +1158,28 @@ async function exportDataset(){
       if (ci < 0) return;
       let kept = 0;
       c.examples.forEach((e, i) => {
-        if (!e.box || e.aug) return;
+        if (!pickOk(e)) return;
         const split = (kept % 7 === 0) ? 'val' : 'train';   // deterministic per-class split
         kept++;
         const fname = c.name + '_' + String(i).padStart(4, '0');
-        zip.file('dataset/images/' + split + '/' + fname + '.jpg',
-                 e.src.split(',')[1], {base64: true});
-        const [cx, cy, w, h] = e.box;
-        zip.file('dataset/labels/' + split + '/' + fname + '.txt',
-                 ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
-                    + w.toFixed(6) + ' ' + h.toFixed(6) + '\n');
+        if (wantBox){
+          zip.file('dataset/images/' + split + '/' + fname + '.jpg',
+                   e.src.split(',')[1], {base64: true});
+          const [cx, cy, w, h] = e.box;
+          zip.file('dataset/labels/' + split + '/' + fname + '.txt',
+                   ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
+                      + w.toFixed(6) + ' ' + h.toFixed(6) + '\n');
+        } else {
+          zip.file('dataset/' + split + '/' + c.name + '/' + fname + '.jpg',
+                   e.src.split(',')[1], {base64: true});
+        }
         n++;
       });
     });
-    zip.file('dataset/data.yaml',
-      'path: .\ntrain: images/train\nval: images/val\nnames:\n' +
-      names.map((nm, i) => '  ' + i + ': ' + nm).join('\n') + '\n');
+    if (wantBox)
+      zip.file('dataset/data.yaml',
+        'path: .\ntrain: images/train\nval: images/val\nnames:\n' +
+        names.map((nm, i) => '  ' + i + ': ' + nm).join('\n') + '\n');
     zip.file('dataset/README_DATASET.md', DS_README);
     const blob = await zip.generateAsync({type: 'blob'});
     const a = document.createElement('a');

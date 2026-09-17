@@ -20,13 +20,25 @@ pip install -r requirements.txt
 
 มี GPU NVIDIA = เทรนเร็วมาก · ไม่มีก็เทรนได้ด้วย CPU (ช้ากว่า แต่ได้ผลเท่ากัน)
 
+## เลือกโหมดได้: Detection หรือ Classification
+
+| โหมด | ได้อะไร | คำสั่ง Step 2 |
+|---|---|---|
+| **Object Detection** (default) | กรอบ + center (x, y) หลายวัตถุพร้อมกัน | `python 2_autolabel.py` |
+| **Classification** | ชื่อคลาสทั้งเฟรม (ไม่มีกรอบ — ง่ายและเร็วที่สุด) | `python 2_autolabel.py --task classify` |
+
+`3_train.py` และ `4_run.py` **ตรวจโหมดให้อัตโนมัติ** — Detection ดูจาก `data.yaml`
+(ใช้ yolov8n), Classification ดูจากโฟลเดอร์ `train/<class>/` (ใช้ yolov8n-cls)
+คำสั่งเทรนและรันเหมือนกันทั้งสองโหมด ไม่ต้องจำอะไรเพิ่ม
+
 ## ทางลัด: Label บนเว็บ แล้วมาเทรนที่นี่ (แนะนำ)
 
-ใช้[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)เก็บภาพ + ลากกรอบ
-(สะดวกกว่า และไม่ต้องพึ่งพื้นหลังเรียบ) แล้ว:
+ใช้[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)เก็บภาพ (+ ลากกรอบถ้าเป็น
+Detection — สะดวกกว่า และไม่ต้องพึ่งพื้นหลังเรียบ) เลือก Task บนเว็บได้ทั้งสองโหมด แล้ว:
 
 1. กดปุ่ม **⬇ Download Dataset (YOLO)** ในหน้าเว็บ (Step 3 · Collect & Label)
 2. แตก zip แล้ววางโฟลเดอร์ `dataset/` ไว้ข้างสคริปต์เหล่านี้ (แทน Step 1–2 ด้านล่าง)
+   — โครงสร้างใน zip ถูกต้องตามโหมดที่เลือกบนเว็บอยู่แล้ว
 3. `python 3_train.py` → `python 4_run.py` — จบ
 
 ## The 4 steps
