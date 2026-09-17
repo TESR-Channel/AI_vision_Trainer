@@ -7,7 +7,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
@@ -72,16 +71,25 @@ button:disabled{opacity:.45;cursor:not-allowed}
 button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.task{display:flex;gap:16px;flex-wrap:wrap}
+.task .opt{flex:1;min-width:300px;border:2px solid var(--edge);border-radius:14px;
+  padding:18px 20px;cursor:pointer;transition:.2s}
+.task .opt:hover{border-color:var(--gold)}
+.task .opt.active{border-color:var(--crimson);background:var(--crimson-soft)}
+.task .opt b{font-weight:600;font-size:16px}
+.task .opt p{color:var(--muted);font-size:13.5px;margin-top:6px;line-height:1.5}
 .cls{border:1.5px solid var(--edge);border-radius:12px;padding:16px;margin-bottom:14px}
-.cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .cls .head b{font-weight:500}
-.cls .count{margin-left:auto;color:var(--muted);font-size:13px}
+.cls .count{margin-left:auto;font-size:13px}
 .clschip{background:var(--card);border:1.5px solid var(--edge);color:var(--muted);
   border-radius:999px;padding:8px 18px;font-size:14px}
 .clschip.active{border-color:var(--gold);color:var(--gold);background:var(--gold-soft);font-weight:500}
-.thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:150px;overflow:auto}
-.thumbs .tw{position:relative}
-.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--edge);display:block}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:170px;overflow:auto}
+.thumbs .tw{position:relative;cursor:pointer}
+.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid var(--edge);display:block}
+.thumbs .tw.lbl img{border-color:var(--ok)}
+.thumbs .tw.unlbl img{border-color:var(--crimson)}
 .thumbs .x{position:absolute;right:-5px;top:-5px;width:18px;height:18px;padding:0;
   border-radius:50%;background:var(--crimson);color:#fff;font-size:10px;line-height:1;
   display:none;border:0;cursor:pointer}
@@ -109,6 +117,14 @@ video,canvas.preview{border-radius:12px;background:#111;max-width:100%}
 .hint{font-size:12.5px;color:var(--faint);margin-top:4px;line-height:1.45}
 footer{text-align:center;color:var(--faint);font-size:13px;margin-top:40px;letter-spacing:1px}
 code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;
+  align-items:center;justify-content:center;z-index:50}
+.modal.open{display:flex}
+.mbox{background:var(--card);border:1px solid var(--edge);border-radius:16px;
+  padding:22px;max-width:620px;width:94vw}
+.mbox h3{font-weight:600;font-size:16px;margin-bottom:4px}
+.mbox .sub{color:var(--muted);font-size:13px;margin-bottom:12px}
+#lblCv{width:100%;border-radius:12px;background:#111;cursor:crosshair;display:block;touch-action:none}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}.step{width:25%}}
 </style>
 </head>
@@ -118,18 +134,18 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <img src="./logo.png" alt="TESR" class="logo">
     <div>
       <h1>TESR <span>AI Vision Web Trainer</span></h1>
-      <p>Train an image-recognition AI entirely in your browser — nothing to install,
+      <p>Train an image-recognition AI entirely in your browser &mdash; nothing to install,
       your photos never leave this computer.</p>
     </div>
     <button class="quiet" id="themeBtn" onclick="toggleTheme()"
-      style="position:absolute;right:0;top:0">☀️ Light</button>
+      style="position:absolute;right:0;top:0">&#9728;&#65039; Light</button>
   </header>
 
   <div class="steps">
-    <div class="step now" id="st1"><i>🧩</i><b>Classes</b><small>Name your objects</small></div>
-    <div class="step" id="st2"><i>📷</i><b>Collect</b><small>Capture examples</small></div>
-    <div class="step" id="st3"><i>🧠</i><b>Train</b><small>In this browser</small></div>
-    <div class="step" id="st4"><i>🎯</i><b>Test &amp; Export</b><small>Try it live</small></div>
+    <div class="step now" id="st1"><i>&#129513;</i><b>Setup</b><small>Task &amp; classes</small></div>
+    <div class="step" id="st2"><i>&#128247;</i><b>Collect &amp; Label</b><small>Photos + boxes</small></div>
+    <div class="step" id="st3"><i>&#129504;</i><b>Train</b><small>In this browser</small></div>
+    <div class="step" id="st4"><i>&#127919;</i><b>Test &amp; Export</b><small>Try it live</small></div>
   </div>
 
   <div class="card">
@@ -140,63 +156,83 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <div class="msg err" id="hwBlock" style="display:none"></div>
   </div>
 
+  <div class="card" id="taskCard">
+    <h2>1 &middot; Choose Your Task</h2>
+    <p class="sub">What should the AI do? You can switch anytime &mdash; your photos are kept.</p>
+    <div class="task">
+      <div class="opt active" id="taskDetect" onclick="setTask('detect')">
+        <b>&#127919; Object Detection &mdash; what &amp; where</b>
+        <p>You draw a box on each photo; the AI learns to find the object, draw its box
+        and report its <b>center position (x, y)</b> live &mdash; ready for robots and automation.
+        Tracks <b>one object per frame</b>. Recommended: <b>40+ labeled photos per class</b>
+        (80+ is noticeably better).</p>
+      </div>
+      <div class="opt" id="taskClassify" onclick="setTask('classify')">
+        <b>&#127991; Classification &mdash; what is it</b>
+        <p>The fastest path: no boxes to draw. The AI names what it sees in the whole
+        frame. Great for sorting, go/no-go checks and quick demos.
+        Recommended: <b>30+ photos per class</b> (60+ is noticeably better).</p>
+      </div>
+    </div>
+  </div>
+
   <div class="card" id="clsCard">
-    <h2>1 · Classes</h2>
-    <p class="sub">What should the AI learn to tell apart? At least 2 classes, e.g. "bottle" and "no_bottle"</p>
+    <h2>2 &middot; Classes</h2>
+    <p class="sub">What should the AI learn to tell apart? At least 2 classes &mdash; and adding a
+    "background" class of your empty scene makes the "none" answer much more reliable.</p>
     <div class="row">
-      <input type="text" id="newCls" placeholder="Class name, e.g. bottle" style="width:260px">
+      <input type="text" id="newCls" placeholder="Class name, e.g. jetson_board" style="width:260px">
       <button class="gold" onclick="addClass()">+ Add Class</button>
     </div>
     <div id="clsList" style="margin-top:16px"></div>
   </div>
 
   <div class="card" id="camCard">
-    <h2>2 · Collect Examples</h2>
-    <p class="sub">Pick a class, then hold the capture button while moving the object around —
-    30–50 varied shots per class works well. You can also upload image files per class above.</p>
+    <h2>3 &middot; Collect <span id="lblTitleWord">&amp; Label</span></h2>
+    <p class="sub" id="collectSub"></p>
     <div class="grid2">
       <div>
         <video id="cam" autoplay playsinline muted style="width:480px;max-width:100%;border-radius:12px;background:#111"></video>
         <div class="row" style="margin-top:12px" id="capClsChips"></div>
         <div class="row" style="margin-top:10px">
-          <button id="holdBtn">📸 Hold to Capture</button>
+          <button id="holdBtn">&#128248; Hold to Capture</button>
+          <button class="gold" id="btnLabel" onclick="openNextUnlabeled()" style="display:none"></button>
           <span class="tag" id="capMsg"></span>
         </div>
-        <div class="hint">Tip: change angle, distance, background and lighting while holding —
+        <div class="hint">Tip: change angle, distance, background and lighting while holding &mdash;
         variety beats quantity.</div>
       </div>
       <div>
-        <div class="note" style="margin-top:0">Examples are converted to compact feature vectors
-        on your GPU as you capture, so training later takes only seconds. Raw images stay
-        in this page's memory only — nothing is uploaded anywhere.</div>
+        <div class="note" style="margin-top:0" id="collectNote"></div>
         <div class="msg" id="dataSummary"></div>
       </div>
     </div>
   </div>
 
   <div class="card" id="augCard">
-    <h2>2.5 · Auto Data Augmentation (optional)</h2>
-    <p class="sub">Only a few photos? Generate more right here in the browser —
-    random flips, rotations and lighting changes of your examples. Generated ones
-    are marked ✨ and can be removed anytime.</p>
+    <h2>3.5 &middot; Auto Data Augmentation (optional)</h2>
+    <p class="sub">Only a few photos? Generate more right here in the browser &mdash; flips,
+    lighting and zoom variations of your examples (boxes are transformed along with the
+    image in detection mode). Generated ones are marked &#10024; and can be removed anytime.</p>
     <div class="row">
       <div><label class="tag">Copies per photo</label><br>
         <select id="augMult" style="width:120px">
-          <option value="2">×2</option>
-          <option value="3" selected>×3</option>
-          <option value="5">×5</option>
+          <option value="2">&times;2</option>
+          <option value="3" selected>&times;3</option>
+          <option value="5">&times;5</option>
         </select></div>
-      <button class="gold" id="btnAug" onclick="augmentAll()" style="margin-top:20px">✨ Generate</button>
+      <button class="gold" id="btnAug" onclick="augmentAll()" style="margin-top:20px">&#10024; Generate</button>
       <button class="quiet" onclick="clearAug()" style="margin-top:20px">Remove generated</button>
       <span class="msg" id="augMsg" style="margin:0"></span>
     </div>
-    <div class="hint" style="max-width:none;margin-top:10px">Augmentation helps the model tolerate
-    different angles and lighting, but real photos from varied viewpoints still work best.</div>
+    <div class="hint" style="max-width:none;margin-top:10px">In detection mode only labeled
+    photos are augmented, and only with box-safe changes (flip, zoom, lighting).</div>
   </div>
 
   <div class="card" id="trainCard">
-    <h2>3 · Train</h2>
+    <h2>4 &middot; Train</h2>
     <p class="sub">Runs on this computer using WebGL/WebGPU acceleration when available</p>
+    <div class="note" id="readiness" style="margin:0 0 16px"></div>
     <div class="row" style="align-items:flex-end">
       <div><label class="tag">Epochs</label><br>
         <input type="number" id="epochs" value="40" min="5" style="width:110px">
@@ -208,7 +244,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <option value="0.005">0.005</option>
         </select>
         <div class="hint">Lower = steadier, slower</div></div>
-      <button id="btnTrain" onclick="train()" style="margin-bottom:22px">🧠 Train Now</button>
+      <button id="btnTrain" onclick="train()" style="margin-bottom:22px">&#129504; Train Now</button>
     </div>
     <div class="bar"><div id="tbar"></div></div>
     <div class="metrics" id="tmetrics"></div>
@@ -216,23 +252,17 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   </div>
 
   <div class="card" id="testCard" style="display:none">
-    <h2>4 · Test Live &amp; Export</h2>
-    <p class="sub">Point the camera at your objects — predictions update in real time</p>
+    <h2>5 &middot; Test Live &amp; Export</h2>
+    <p class="sub">Point the camera at your objects &mdash; predictions update in real time</p>
     <div class="grid2">
       <div>
         <canvas id="testView" width="640" height="480"
           style="width:100%;border-radius:12px;background:#111;display:block;margin-bottom:12px"></canvas>
         <div class="row">
-          <button class="gold" id="btnLive" onclick="toggleLive()">▶ Start Live Test</button>
-          <select id="mode" style="width:280px" onchange="lastDetsW=[];lastLabel=null;">
-            <option value="classify">Classify — whole frame</option>
-            <option value="detect">Detect — boxes + your classes</option>
-          </select>
-          <select id="sensSel" style="width:190px" title="Box sensitivity"
-            onchange="lastDetsW=[];">
-            <option value="0.2">Sensitive — more boxes</option>
-            <option value="0.35" selected>Normal</option>
-            <option value="0.5">Strict — fewer boxes</option>
+          <button class="gold" id="btnLive" onclick="toggleLive()">&#9654; Start Live Test</button>
+          <select id="mode" style="width:250px" onchange="lastBoxW=null;lastLabel=null;">
+            <option value="detect">Detect &mdash; box + center</option>
+            <option value="classify">Classify &mdash; whole frame</option>
           </select>
           <select id="minConf" style="width:170px" title='Below this = "none"'>
             <option value="0.5">none if &lt;50%</option>
@@ -241,43 +271,59 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           </select>
           <span class="tag" id="fpsTag"></span>
         </div>
-        <div class="hint" id="modeHint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the frame
-        does not <i>look like</i> any of your training photos (feature similarity, learned
-        automatically at training time). Tip: adding a "background" class of your empty
-        scene makes it even more reliable.
-        </div>
-        <div class="hint">Detect mode: a general-purpose detector (COCO-SSD, running
-        in your browser) finds objects and draws boxes; your freshly trained classifier names
-        each box with YOUR classes. Works best with everyday objects the detector already
-        recognizes (bottles, phones, boxes, tools, people...) — if your object gets no box,
-        lower the sensitivity setting.</div>
+        <div class="hint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the
+        frame does not <i>look like</i> any of your training photos (feature similarity, learned
+        automatically at training time).</div>
+        <div class="hint" id="detHint">Detect mode shows the box, a crosshair at the object's
+        <b>center</b>, and its position in pixels and percent &mdash; the numbers a robot arm or
+        conveyor system needs. One object per frame; for multi-object production systems, use
+        the TESR Desktop Trainer (YOLO).</div>
         <div class="pred" id="pred"></div>
       </div>
       <div>
         <div class="note" style="margin-top:0">
-          <b>Export</b> downloads a single <code>.zip</code> containing your trained
-          model (<code>model.json</code> + <code>weights.bin</code>),
-          <code>classes.txt</code>, a ready-to-run <b>Python sample</b>
-          (<code>predict.py</code> + <code>requirements.txt</code>) and a step-by-step
-          <code>README_PYTHON.md</code> — so you can use the model on your computer,
-          from an image file or a live webcam.
+          <b>Export</b> downloads a single <code>.zip</code> with your trained model, a
+          ready-to-run <b>Python sample</b> (webcam or image, draws the box + center),
+          one-click installers for Windows/Linux, and a step-by-step
+          <code>README_PYTHON.md</code>.
         </div>
         <div class="row" style="margin-top:14px">
-          <button onclick="exportModel()" id="btnExport" disabled>💾 Download Model</button>
+          <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download Model</button>
           <span class="msg" id="eMsg" style="margin:0"></span>
         </div>
       </div>
     </div>
   </div>
 
-  <footer>TESR ACADEMY — Learn it. Build it. Deploy it. For real.</footer>
+  <footer>TESR ACADEMY &mdash; Learn it. Build it. Deploy it. For real.</footer>
+</div>
+
+<!-- Labeling modal (detection task) -->
+<div class="modal" id="lblModal">
+  <div class="mbox">
+    <h3 id="lblTitle">Draw a box around the object</h3>
+    <p class="sub">Drag on the image to draw the box &mdash; make it tight around the object.
+      <b>Enter</b> = save &amp; next &middot; <b>X</b> = clear box &middot; <b>Esc</b> = close</p>
+    <canvas id="lblCv" width="480" height="480"></canvas>
+    <div class="row" style="margin-top:14px">
+      <button onclick="lblSaveNext()">&#10003; Save &amp; Next (Enter)</button>
+      <button class="quiet" onclick="lblClear()">Clear box (X)</button>
+      <button class="quiet" onclick="lblNav(-1)">&#8592; Prev</button>
+      <button class="quiet" onclick="lblNav(1)">Next &#8594;</button>
+      <span class="tag" id="lblPos" style="margin-left:auto"></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="quiet" onclick="closeLbl()">Close (Esc)</button>
+      <span class="msg" id="lblMsg" style="margin:0"></span>
+    </div>
+  </div>
 </div>
 
 <script>
 /* ============ theme ============ */
 function applyTheme(m){
   document.documentElement.dataset.theme = m;
-  document.getElementById('themeBtn').textContent = m==='light' ? '🌙 Dark' : '☀️ Light';
+  document.getElementById('themeBtn').textContent = m==='light' ? '\ud83c\udf19 Dark' : '\u2600\ufe0f Light';
   try{localStorage.setItem('tesr_theme',m)}catch(e){}
 }
 function toggleTheme(){
@@ -287,8 +333,36 @@ let th='dark'; try{th=localStorage.getItem('tesr_theme')||'dark'}catch(e){}
 applyTheme(th);
 
 /* ============ state ============ */
-let classes = [];   // [{name, examples: [{feat, thumb, src, aug}]}]
-let net = null, head = null, camOK = false, liveOn = false;
+let classes = [];   // [{name, examples: [{feat, thumb, src, aug, box}]}]  box=[cx,cy,w,h] or null
+let net = null, head = null, boxHead = null, camOK = false, liveOn = false;
+let task = 'detect';                       // 'detect' | 'classify'
+const REC = {detect:{min:40, good:80}, classify:{min:30, good:60}};
+
+function setTask(t){
+  task = t;
+  document.getElementById('taskDetect').classList.toggle('active', t==='detect');
+  document.getElementById('taskClassify').classList.toggle('active', t==='classify');
+  document.getElementById('lblTitleWord').style.display = t==='detect' ? '' : 'none';
+  document.getElementById('collectSub').textContent = t==='detect'
+    ? 'Pick a class, hold the capture button while moving the object around, then click any '
+      + 'photo (or the Label button) to draw its box. Red border = needs a box, green = labeled.'
+    : 'Pick a class, then hold the capture button while moving the object around. '
+      + 'You can also upload image files per class above.';
+  document.getElementById('collectNote').innerHTML = t==='detect'
+    ? 'Recommended: at least <b>' + REC.detect.min + ' labeled photos per class</b> ('
+      + REC.detect.good + '+ is noticeably better). Photos are converted to compact feature '
+      + 'vectors on your GPU as you capture, so training takes only seconds. Everything stays '
+      + 'in this page\u2019s memory \u2014 nothing is uploaded anywhere.'
+    : 'Recommended: at least <b>' + REC.classify.min + ' photos per class</b> ('
+      + REC.classify.good + '+ is noticeably better). Photos are converted to compact feature '
+      + 'vectors on your GPU as you capture, so training takes only seconds. Everything stays '
+      + 'in this page\u2019s memory \u2014 nothing is uploaded anywhere.';
+  const modeSel = document.getElementById('mode');
+  modeSel.style.display = (t==='detect') ? '' : 'none';
+  if (t==='classify') modeSel.value = 'classify'; else modeSel.value = 'detect';
+  document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
+  renderClasses();
+}
 
 /* ============ capability check ============ */
 async function checkHW(){
@@ -301,7 +375,6 @@ async function checkHW(){
 
   let backend = 'none', ok = true, note = '';
   try {
-    // Prefer WebGPU, fall back to WebGL, then CPU
     if (navigator.gpu) { try { await tf.setBackend('webgpu'); } catch(e){} }
     if (tf.getBackend() !== 'webgpu') { try { await tf.setBackend('webgl'); } catch(e){} }
     await tf.ready();
@@ -309,16 +382,16 @@ async function checkHW(){
   } catch(e) { ok = false; }
 
   if (backend === 'webgpu' || backend === 'webgl') {
-    chips.push(`<span class="chip ok">✔ GPU acceleration: <b>${backend.toUpperCase()}</b></span>`);
-    note = '💡 This machine can train comfortably. Expect a few seconds of training time.';
+    chips.push(`<span class="chip ok">\u2714 GPU acceleration: <b>${backend.toUpperCase()}</b></span>`);
+    note = '\ud83d\udca1 This machine can train comfortably. Expect a few seconds of training time.';
   } else if (backend === 'cpu' || backend === 'wasm') {
-    chips.push(`<span class="chip warn">CPU only — training works but is slower</span>`);
-    note = '💡 No GPU acceleration found. Keep it to 2–3 classes and ~30 images each.';
+    chips.push(`<span class="chip warn">CPU only \u2014 training works but is slower</span>`);
+    note = '\ud83d\udca1 No GPU acceleration found. Keep it to 2\u20133 classes and ~30 images each.';
   } else {
     ok = false;
   }
   if (!navigator.mediaDevices?.getUserMedia) {
-    chips.push('<span class="chip warn">No camera API — upload files instead</span>');
+    chips.push('<span class="chip warn">No camera API \u2014 upload files instead</span>');
   }
   hw.innerHTML = chips.join('');
   const n = document.getElementById('hwNote');
@@ -327,23 +400,22 @@ async function checkHW(){
   if (!ok) {
     document.getElementById('hwBlock').style.display = '';
     document.getElementById('hwBlock').textContent =
-      'Sorry — this browser/device does not support in-browser training (no WebGL/WebGPU). ' +
+      'Sorry \u2014 this browser/device does not support in-browser training (no WebGL/WebGPU). ' +
       'Try a recent Chrome, Edge or Firefox on a desktop or laptop.';
-    for (const id of ['clsCard','camCard','trainCard']) {
+    for (const id of ['taskCard','clsCard','camCard','trainCard']) {
       document.getElementById(id).style.opacity = .4;
       document.getElementById(id).style.pointerEvents = 'none';
     }
     return;
   }
-  // Load the feature extractor (downloaded once from CDN, then cached by the browser)
   document.getElementById('tMsg').textContent = 'Loading the vision backbone (MobileNet, ~8 MB)...';
   try {
     net = await mobilenet.load({version: 2, alpha: 0.5});
-    document.getElementById('tMsg').textContent = 'Backbone ready ✔ Add classes and start collecting.';
+    document.getElementById('tMsg').textContent = 'Backbone ready \u2714 Choose a task, add classes and start collecting.';
   } catch(e) {
     document.getElementById('tMsg').className = 'msg err';
     document.getElementById('tMsg').textContent =
-      'Could not download the model backbone — check your internet connection and reload. (' + e.message + ')';
+      'Could not download the model backbone \u2014 check your internet connection and reload. (' + e.message + ')';
   }
   startCam();
 }
@@ -365,13 +437,25 @@ function deleteExample(clsName, idx){
   const c = classes.find(x=>x.name===clsName);
   if (c) { c.examples.splice(idx, 1); renderClasses(); }
 }
-let capClass = null;   // latched capture class — stays until YOU change it
+let capClass = null;   // latched capture class \u2014 stays until YOU change it
 function renderCapChips(){
   if (!classes.find(c => c.name === capClass)) capClass = classes[0]?.name || null;
   document.getElementById('capClsChips').innerHTML = classes.map(c =>
     `<button class="clschip ${c.name===capClass?'active':''}"
        onclick="capClass='${c.name}';renderCapChips()">${c.name}</button>`).join('') ||
     '<span class="tag">Add classes above first</span>';
+}
+function labeledCount(c){ return c.examples.filter(e=>e.box).length; }
+function unlabeledTotal(){
+  if (task!=='detect') return 0;
+  return classes.reduce((s,c)=>s + c.examples.filter(e=>!e.box).length, 0);
+}
+function countChip(c){
+  const min = REC[task].min;
+  const n = task==='detect' ? labeledCount(c) : c.examples.length;
+  const cl = n >= min ? 'ok' : (n >= min/2 ? 'warn' : 'bad');
+  const word = task==='detect' ? 'labeled' : 'photos';
+  return `<span class="chip ${cl}" style="padding:3px 12px">${n}/${min} ${word}</span>`;
 }
 function renderClasses(){
   document.getElementById('clsList').innerHTML = classes.map(c => {
@@ -380,30 +464,56 @@ function renderClasses(){
     <div class="cls">
       <div class="head">
         <b>${c.name}</b>
+        ${countChip(c)}
         <label class="gold" style="border:1.5px solid var(--gold);color:var(--gold);
           border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px">
           Upload files<input type="file" multiple accept="image/*" hidden
             onchange="uploadTo('${c.name}', this.files)"></label>
         <button class="quiet" style="padding:7px 14px;font-size:13px"
           onclick="removeClass('${c.name}')">Remove class</button>
-        <span class="count">${c.examples.length} examples${nAug?` (${nAug} auto)`:''}
-          · hover a photo to delete it</span>
+        <span class="count tag">${c.examples.length} photos${nAug?` (${nAug} auto)`:''}
+          &middot; hover to delete${task==='detect' ? ' &middot; click to label' : ''}</span>
       </div>
       <div class="thumbs">${c.examples.map((e,i)=>`
-        <span class="tw"><img src="${e.thumb}">
-          ${e.aug?'<span class="aug">✨</span>':''}
+        <span class="tw ${task==='detect' ? (e.box?'lbl':'unlbl') : ''}"
+          ${task==='detect' ? `onclick="openLbl('${c.name}', ${i})"` : ''}>
+          <img src="${e.thumb}">
+          ${e.aug?'<span class="aug">\u2728</span>':''}
           <button class="x" title="Delete this example"
-            onclick="deleteExample('${c.name}', ${i})">✕</button></span>`).join('')}</div>
+            onclick="event.stopPropagation();deleteExample('${c.name}', ${i})">\u2715</button></span>`).join('')}</div>
     </div>`;}).join('') ||
-    '<div class="msg">No classes yet — add at least two above.</div>';
+    '<div class="msg">No classes yet \u2014 add at least two above.</div>';
   renderCapChips();
   updateSummary();
+  updateReadiness();
 }
 function updateSummary(){
   const total = classes.reduce((s,c)=>s+c.examples.length,0);
+  const un = unlabeledTotal();
+  const btn = document.getElementById('btnLabel');
+  if (task==='detect' && un > 0) {
+    btn.style.display = '';
+    btn.textContent = `\ud83c\udff7 Label photos (${un} left)`;
+  } else btn.style.display = 'none';
   document.getElementById('dataSummary').textContent = classes.length
-    ? `Total ${total} examples across ${classes.length} classes` : '';
+    ? `Total ${total} photos across ${classes.length} classes`
+      + (task==='detect' ? ` \u2014 ${total-un} labeled, ${un} waiting for a box` : '')
+    : '';
   setStep(total>0 ? (head ? 4 : 3) : (classes.length ? 2 : 1));
+}
+function updateReadiness(){
+  const el = document.getElementById('readiness');
+  if (!classes.length) { el.innerHTML = 'Add classes and collect photos first.'; return; }
+  const min = REC[task].min, good = REC[task].good;
+  const rows = classes.map(c => {
+    const n = task==='detect' ? labeledCount(c) : c.examples.length;
+    const mark = n >= min ? '\u2705' : '\u26a0\ufe0f';
+    return `${mark} <b>${c.name}</b>: ${n}/${min}` + (task==='detect' ? ' labeled' : '');
+  });
+  const un = unlabeledTotal();
+  el.innerHTML = `Recommended minimum <b>${min}</b> ${task==='detect'?'labeled ':''}photos per class`
+    + ` (${good}+ is noticeably better): &nbsp; ` + rows.join(' &nbsp;&middot;&nbsp; ')
+    + (un ? `<br>\ud83c\udff7 ${un} photos still need a box \u2014 click them (red border) or press "Label photos".` : '');
 }
 function setStep(n){
   [1,2,3,4].forEach(i=>{
@@ -420,11 +530,10 @@ async function startCam(){
     camOK = true;
   } catch(e) {
     document.getElementById('capMsg').textContent =
-      'Camera unavailable (' + e.name + ') — use Upload files instead.';
+      'Camera unavailable (' + e.name + ') \u2014 use Upload files instead.';
   }
 }
 function embed(el){
-  // MobileNet penultimate activations -> 1D feature vector (runs on GPU)
   return tf.tidy(() => net.infer(el, true).squeeze());
 }
 function makeSrc(el){
@@ -434,12 +543,13 @@ function makeSrc(el){
   return c;
 }
 async function addExample(clsName, el, thumbURL){
-  const srcCv = makeSrc(el);          // keep a small source copy → enables augmentation later
+  const srcCv = makeSrc(el);
   const f = embed(srcCv);
   const feat = await f.array();
   f.dispose();
   const c = classes.find(x=>x.name===clsName);
-  c.examples.push({feat, thumb: thumbURL, src: srcCv.toDataURL('image/jpeg', .8), aug: false});
+  c.examples.push({feat, thumb: thumbURL, src: srcCv.toDataURL('image/jpeg', .8),
+                   aug: false, box: null});
   renderClasses();
 }
 function snapThumb(video){
@@ -448,7 +558,6 @@ function snapThumb(video){
   c.getContext('2d').drawImage(video, 0, 0, 96, 72);
   return c.toDataURL('image/jpeg', .6);
 }
-/* hold-to-capture burst */
 let capTimer = null;
 const holdBtn = document.getElementById('holdBtn');
 function startBurst(e){
@@ -459,7 +568,7 @@ function startBurst(e){
   capTimer = setInterval(async () => {
     await addExample(cls, video, snapThumb(video));
     document.getElementById('capMsg').textContent =
-      `${classes.find(x=>x.name===cls).examples.length} examples of "${cls}"`;
+      `${classes.find(x=>x.name===cls).examples.length} photos of "${cls}"`;
   }, 160);
 }
 function stopBurst(){ if (capTimer){ clearInterval(capTimer); capTimer = null; } }
@@ -477,21 +586,136 @@ async function uploadTo(clsName, files){
   }
 }
 
+/* ============ labeling (detection task) ============ */
+let lblCls = null, lblIdx = -1, lblBox = null, lblDrag = null, lblImg = null;
+function clampBox(b){
+  let [cx, cy, w, h] = b;
+  w = Math.min(Math.max(w, 0.02), 1); h = Math.min(Math.max(h, 0.02), 1);
+  cx = Math.min(Math.max(cx, w/2), 1 - w/2);
+  cy = Math.min(Math.max(cy, h/2), 1 - h/2);
+  return [cx, cy, w, h];
+}
+function openLbl(clsName, idx){
+  if (task !== 'detect') return;
+  const c = classes.find(x=>x.name===clsName);
+  if (!c || !c.examples[idx]) return;
+  lblCls = clsName; lblIdx = idx;
+  const e = c.examples[idx];
+  lblBox = e.box ? e.box.slice() : null;
+  lblImg = new Image();
+  lblImg.onload = () => { drawLbl(); };
+  lblImg.src = e.src;
+  document.getElementById('lblTitle').textContent =
+    `Draw a box around: ${clsName}`;
+  document.getElementById('lblPos').textContent = `photo ${idx+1}/${c.examples.length}`;
+  document.getElementById('lblMsg').textContent = '';
+  document.getElementById('lblModal').classList.add('open');
+}
+function openNextUnlabeled(){
+  for (const c of classes){
+    const i = c.examples.findIndex(e => !e.box);
+    if (i >= 0) { openLbl(c.name, i); return; }
+  }
+}
+function drawLbl(){
+  const cv = document.getElementById('lblCv'), x = cv.getContext('2d');
+  x.clearRect(0,0,cv.width,cv.height);
+  if (lblImg) x.drawImage(lblImg, 0, 0, cv.width, cv.height);
+  const b = lblDrag || lblBox;
+  if (b){
+    const [cx, cy, w, h] = b;
+    x.strokeStyle = '#d8484c'; x.lineWidth = 3;
+    x.strokeRect((cx-w/2)*cv.width, (cy-h/2)*cv.height, w*cv.width, h*cv.height);
+    x.strokeStyle = '#c9a84c'; x.lineWidth = 2;
+    const px = cx*cv.width, py = cy*cv.height;
+    x.beginPath(); x.moveTo(px-10,py); x.lineTo(px+10,py);
+    x.moveTo(px,py-10); x.lineTo(px,py+10); x.stroke();
+  }
+}
+function lblPoint(ev){
+  const cv = document.getElementById('lblCv');
+  const r = cv.getBoundingClientRect();
+  const t = ev.touches ? ev.touches[0] : ev;
+  return [Math.min(Math.max((t.clientX-r.left)/r.width,0),1),
+          Math.min(Math.max((t.clientY-r.top)/r.height,0),1)];
+}
+let lblStart = null;
+function lblDown(ev){ ev.preventDefault(); lblStart = lblPoint(ev); lblDrag = null; }
+function lblMove(ev){
+  if (!lblStart) return;
+  ev.preventDefault();
+  const p = lblPoint(ev);
+  const x1 = Math.min(lblStart[0], p[0]), x2 = Math.max(lblStart[0], p[0]);
+  const y1 = Math.min(lblStart[1], p[1]), y2 = Math.max(lblStart[1], p[1]);
+  lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1]);
+  drawLbl();
+}
+function lblUp(ev){
+  if (!lblStart) return;
+  if (lblDrag) lblBox = lblDrag;
+  lblStart = null; lblDrag = null; drawLbl();
+}
+function lblClear(){ lblBox = null; lblDrag = null; drawLbl(); }
+function lblSaveNext(){
+  if (!lblBox){ document.getElementById('lblMsg').textContent = 'Draw a box first (drag on the image).'; return; }
+  const c = classes.find(x=>x.name===lblCls);
+  c.examples[lblIdx].box = lblBox.slice();
+  renderClasses();
+  // next unlabeled in this class, then any class
+  let i = c.examples.findIndex((e,j) => j > lblIdx && !e.box);
+  if (i < 0) i = c.examples.findIndex(e => !e.box);
+  if (i >= 0) { openLbl(lblCls, i); return; }
+  for (const c2 of classes){
+    const k = c2.examples.findIndex(e => !e.box);
+    if (k >= 0) { openLbl(c2.name, k); return; }
+  }
+  closeLbl();
+}
+function lblNav(d){
+  const c = classes.find(x=>x.name===lblCls);
+  const i = Math.min(Math.max(lblIdx + d, 0), c.examples.length - 1);
+  if (i !== lblIdx) openLbl(lblCls, i);
+}
+function closeLbl(){ document.getElementById('lblModal').classList.remove('open'); }
+{
+  const cv = document.getElementById('lblCv');
+  cv.addEventListener('mousedown', lblDown); cv.addEventListener('mousemove', lblMove);
+  window.addEventListener('mouseup', lblUp);
+  cv.addEventListener('touchstart', lblDown, {passive:false});
+  cv.addEventListener('touchmove', lblMove, {passive:false});
+  window.addEventListener('touchend', lblUp);
+  window.addEventListener('keydown', ev => {
+    if (!document.getElementById('lblModal').classList.contains('open')) return;
+    if (ev.key === 'Enter') { ev.preventDefault(); lblSaveNext(); }
+    else if (ev.key === 'Escape') closeLbl();
+    else if (ev.key === 'x' || ev.key === 'X') lblClear();
+    else if (ev.key === 'ArrowLeft') lblNav(-1);
+    else if (ev.key === 'ArrowRight') lblNav(1);
+  });
+}
+
 /* ============ augmentation ============ */
-function augmentVariant(img){
+function augmentVariant(img, box){
+  // box-safe transforms only when a box is present: flip / zoom / lighting
   const c = document.createElement('canvas');
   c.width = 224; c.height = 224;
   const x = c.getContext('2d');
   const flip = Math.random() < 0.5;
-  const rot = (Math.random()*30 - 15) * Math.PI/180;
-  const scale = 0.88 + Math.random()*0.24;
+  const rot = box ? 0 : (Math.random()*30 - 15) * Math.PI/180;
+  const scale = 0.9 + Math.random()*0.22;
   x.fillStyle = '#727272'; x.fillRect(0,0,224,224);
   x.filter = `brightness(${(0.75+Math.random()*0.5).toFixed(2)})` +
              ` contrast(${(0.85+Math.random()*0.3).toFixed(2)})` +
              ` saturate(${(0.85+Math.random()*0.3).toFixed(2)})`;
   x.translate(112,112); x.rotate(rot); x.scale(flip ? -scale : scale, scale);
   x.drawImage(img, -112, -112, 224, 224);
-  return c;
+  let nb = null;
+  if (box){
+    let [cx, cy, w, h] = box;
+    if (flip) cx = 1 - cx;
+    nb = clampBox([0.5 + (cx-0.5)*scale, 0.5 + (cy-0.5)*scale, w*scale, h*scale]);
+  }
+  return {cv: c, box: nb};
 }
 function shrink(cv){
   const c = document.createElement('canvas');
@@ -501,31 +725,37 @@ function shrink(cv){
 }
 async function augmentAll(){
   const btn = document.getElementById('btnAug'), msg = document.getElementById('augMsg');
-  if (!net) { msg.textContent = 'Backbone still loading — wait a moment.'; return; }
+  if (!net) { msg.textContent = 'Backbone still loading \u2014 wait a moment.'; return; }
   const k = +document.getElementById('augMult').value;
-  const sources = classes.flatMap(c => c.examples.filter(e => !e.aug)
-    .map(e => ({cls: c, src: e.src})));
-  if (!sources.length) { msg.textContent = 'Collect some examples first.'; return; }
+  const need = e => task==='detect' ? (!e.aug && e.box) : !e.aug;
+  const sources = classes.flatMap(c => c.examples.filter(need)
+    .map(e => ({cls: c, src: e.src, box: e.box})));
+  if (!sources.length) {
+    msg.textContent = task==='detect'
+      ? 'Label some photos first \u2014 only labeled photos are augmented in detection mode.'
+      : 'Collect some photos first.';
+    return;
+  }
   btn.disabled = true;
   let made = 0, total = sources.length * k;
   for (const s of sources) {
     const img = new Image();
     await new Promise(res => { img.onload = res; img.src = s.src; });
     for (let i = 0; i < k; i++) {
-      const cv = augmentVariant(img);
-      const f = embed(cv);
-      s.cls.examples.push({feat: await f.array(), thumb: shrink(cv),
-                           src: cv.toDataURL('image/jpeg', .8), aug: true});
+      const v = augmentVariant(img, s.box);
+      const f = embed(v.cv);
+      s.cls.examples.push({feat: await f.array(), thumb: shrink(v.cv),
+                           src: v.cv.toDataURL('image/jpeg', .8), aug: true, box: v.box});
       f.dispose();
       made++;
       if (made % 10 === 0) {
         msg.textContent = `Generating... ${made}/${total}`;
-        await tf.nextFrame();     // keep the page responsive
+        await tf.nextFrame();
       }
     }
   }
   renderClasses();
-  msg.textContent = `Done — created ${made} images from ${sources.length} originals ✨ (marked in the lists above)`;
+  msg.textContent = `Done \u2014 created ${made} images from ${sources.length} originals \u2728`;
   btn.disabled = false;
 }
 function clearAug(){
@@ -536,90 +766,15 @@ function clearAug(){
   });
   renderClasses();
   document.getElementById('augMsg').textContent =
-    `Removed ${n} generated images — your originals are untouched.`;
+    `Removed ${n} generated images \u2014 your originals are untouched.`;
 }
 
-/* ============ training ============ */
-async function train(){
-  const msg = document.getElementById('tMsg');
-  msg.className = 'msg';
-  if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
-  const usable = classes.filter(c => c.examples.length >= 5);
-  if (usable.length < 2) {
-    msg.className = 'msg err';
-    msg.textContent = 'Need at least 2 classes with 5+ examples each. Collect more first.';
-    return;
-  }
-  document.getElementById('btnTrain').disabled = true;
-  msg.textContent = 'Preparing data...';
-
-  const names = usable.map(c=>c.name);
-  const xs = [], ys = [];
-  usable.forEach((c,i)=>c.examples.forEach(e=>{ xs.push(e.feat); ys.push(i); }));
-  const X = tf.tensor2d(xs);
-  const Y = tf.oneHot(tf.tensor1d(ys,'int32'), names.length);
-
-  head = tf.sequential({layers:[
-    tf.layers.dense({inputShape:[X.shape[1]], units:100, activation:'relu'}),
-    tf.layers.dropout({rate:0.3}),
-    tf.layers.dense({units:names.length, activation:'softmax'}),
-  ]});
-  head.classNames = names;
-  head.compile({optimizer: tf.train.adam(+document.getElementById('lr').value),
-                loss:'categoricalCrossentropy', metrics:['accuracy']});
-
-  const epochs = Math.max(5, +document.getElementById('epochs').value || 40);
-  const t0 = performance.now();
-  try {
-    await head.fit(X, Y, {
-      epochs, batchSize: 16, shuffle: true, validationSplit: 0.15,
-      callbacks: { onEpochEnd: async (ep, logs) => {
-        const pct = 100*(ep+1)/epochs;
-        document.getElementById('tbar').style.width = pct + '%';
-        document.getElementById('tmetrics').innerHTML =
-          `<span>Epoch <b>${ep+1}/${epochs}</b></span>` +
-          `<span>loss <b>${logs.loss.toFixed(3)}</b></span>` +
-          `<span>accuracy <b>${(100*(logs.acc??logs.accuracy??0)).toFixed(1)}%</b></span>` +
-          (logs.val_acc!=null||logs.val_accuracy!=null ?
-            `<span>val_acc <b>${(100*(logs.val_acc??logs.val_accuracy)).toFixed(1)}%</b></span>` : '');
-        await tf.nextFrame();   // keep the page responsive
-      }}
-    });
-    protos = computeProtos(usable);   // remember what each class looks like -> powers "none"
-    const secs = ((performance.now()-t0)/1000).toFixed(1);
-    msg.textContent = `✅ Trained in ${secs}s on this computer — test it live below.`;
-    document.getElementById('testCard').style.display = '';
-    document.getElementById('btnExport').disabled = false;
-    setStep(4);
-  } catch(e) {
-    msg.className = 'msg err';
-    msg.textContent = 'Training failed: ' + e.message +
-      ' — try fewer examples or reload the page.';
-  } finally {
-    X.dispose(); Y.dispose();
-    document.getElementById('btnTrain').disabled = false;
-  }
-}
-
-/* ============ live test ============ */
-async function toggleLive(){
-  liveOn = !liveOn;
-  document.getElementById('btnLive').textContent = liveOn ? '⏸ Stop' : '▶ Start Live Test';
-  if (liveOn) { lastDetsW = []; lastLabel = null; renderLoopW(); inferLoopW(); }
-}
-let detector = null, cropCv = document.createElement('canvas');
-cropCv.width = 224; cropCv.height = 224;
-let lastDetsW = [], lastLabel = null;
-
-/* Prototypes: per-class feature "signatures" captured at training time.
-   A frame that looks like NONE of your classes -> "none", even when the
-   classifier itself is overconfident (softmax always picks something). */
+/* ============ prototypes + shared predictor ============ */
 let protos = null;
-function computeProtos(usable){
-  const names = usable.map(c => c.name);
-  const normed = usable.map(c => c.examples.map(e => {
-    const n = Math.sqrt(e.feat.reduce((s,v)=>s+v*v,0)) + 1e-9;
-    return e.feat.map(v => v/n);
+function computeProtos(perClassFeats, names){
+  const normed = perClassFeats.map(fs => fs.map(f => {
+    const n = Math.sqrt(f.reduce((s,v)=>s+v*v,0)) + 1e-9;
+    return f.map(v => v/n);
   }));
   const C = normed.map(fs => {
     const m = new Array(fs[0].length).fill(0);
@@ -636,12 +791,15 @@ function computeProtos(usable){
   const p05 = sims[Math.floor(sims.length*0.05)] ?? sims[0];
   return {names, C, thr: Math.min(0.9, Math.max(0.35, p05*0.97))};
 }
-
-/* Shared predictor for both modes: confidence gate + similarity gate */
 async function predictEl(el){
   const ft = tf.tidy(() => embed(el));
   const pt = tf.tidy(() => head.predict(ft.expandDims(0)).squeeze());
   const vals = await pt.array(); pt.dispose();
+  let box = null;
+  if (boxHead){
+    const bt = tf.tidy(() => boxHead.predict(ft.expandDims(0)).squeeze());
+    box = await bt.array(); bt.dispose();
+  }
   const f = await ft.array(); ft.dispose();
   let best = 0;
   for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
@@ -654,40 +812,124 @@ async function predictEl(el){
       s /= n; if (s > sim) sim = s;
     }
   }
-  const th = +document.getElementById('minConf').value;
-  const none = vals[best] < th || (sim !== null && sim < protos.thr);
-  return {name: none ? 'none' : head.classNames[best], conf: vals[best], vals};
+  const thv = +document.getElementById('minConf').value;
+  const none = vals[best] < thv || (sim !== null && sim < protos.thr);
+  return {name: none ? 'none' : head.classNames[best], conf: vals[best], vals, box};
 }
 
-async function classifyCrop(video, box){
-  // box = [x, y, w, h] in the video's intrinsic pixels
-  const [x, y, w, h] = box;
-  cropCv.getContext('2d').drawImage(video, x, y, w, h, 0, 0, 224, 224);
-  return await predictEl(cropCv);
-}
+/* ============ training ============ */
+async function train(){
+  const msg = document.getElementById('tMsg');
+  msg.className = 'msg';
+  if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
+  const pick = c => task==='detect' ? c.examples.filter(e=>e.box) : c.examples;
+  const usable = classes.filter(c => pick(c).length >= 10);
+  if (usable.length < 2) {
+    msg.className = 'msg err';
+    msg.textContent = task==='detect'
+      ? 'Need at least 2 classes with 10+ LABELED photos each \u2014 draw boxes first (red-border photos).'
+      : 'Need at least 2 classes with 10+ photos each. Collect more first.';
+    return;
+  }
+  const min = REC[task].min;
+  const low = usable.filter(c => pick(c).length < min).map(c=>c.name);
+  document.getElementById('btnTrain').disabled = true;
+  msg.textContent = 'Preparing data...';
 
-/* Smoothing: blend each new box toward the nearest previous box of the same
-   class, so boxes glide instead of jumping (same technique as real trackers). */
-function smoothDetsW(prev, next){
-  const A = 0.45;
-  return next.map(n => {
-    const [nx1, ny1, nx2, ny2] = n.box;
-    const ncx = (nx1+nx2)/2, ncy = (ny1+ny2)/2;
-    let best = null, bd = 0.12;
-    for (const p of prev) {
-      if (p.name !== n.name) continue;
-      const [px1, py1, px2, py2] = p.box;
-      const d = Math.hypot((px1+px2)/2 - ncx, (py1+py2)/2 - ncy);
-      if (d < bd) { bd = d; best = p; }
-    }
-    if (!best) return n;
-    return {name: n.name, conf: n.conf,
-            box: n.box.map((v, i) => best.box[i] + A * (v - best.box[i]))};
+  const names = usable.map(c=>c.name);
+  const xs = [], ys = [], bx = [], by = [];
+  usable.forEach((c,i)=>{
+    pick(c).forEach(e=>{
+      xs.push(e.feat); ys.push(i);
+      if (task==='detect'){ bx.push(e.feat); by.push(e.box); }
+    });
   });
+  const X = tf.tensor2d(xs);
+  const Y = tf.oneHot(tf.tensor1d(ys,'int32'), names.length);
+
+  head = tf.sequential({layers:[
+    tf.layers.dense({inputShape:[X.shape[1]], units:100, activation:'relu'}),
+    tf.layers.dropout({rate:0.3}),
+    tf.layers.dense({units:names.length, activation:'softmax'}),
+  ]});
+  head.classNames = names;
+  head.compile({optimizer: tf.train.adam(+document.getElementById('lr').value),
+                loss:'categoricalCrossentropy', metrics:['accuracy']});
+
+  const epochs = Math.max(5, +document.getElementById('epochs').value || 40);
+  const t0 = performance.now();
+  const clsShare = task==='detect' ? 55 : 100;   // progress bar split
+  try {
+    await head.fit(X, Y, {
+      epochs, batchSize: 16, shuffle: true, validationSplit: 0.15,
+      callbacks: { onEpochEnd: async (ep, logs) => {
+        document.getElementById('tbar').style.width = (clsShare*(ep+1)/epochs) + '%';
+        document.getElementById('tmetrics').innerHTML =
+          `<span>Classifier <b>${ep+1}/${epochs}</b></span>` +
+          `<span>loss <b>${logs.loss.toFixed(3)}</b></span>` +
+          `<span>accuracy <b>${(100*(logs.acc??logs.accuracy??0)).toFixed(1)}%</b></span>` +
+          (logs.val_acc!=null||logs.val_accuracy!=null ?
+            `<span>val_acc <b>${(100*(logs.val_acc??logs.val_accuracy)).toFixed(1)}%</b></span>` : '');
+        await tf.nextFrame();
+      }}
+    });
+    boxHead = null;
+    if (task==='detect'){
+      const Xb = tf.tensor2d(bx);
+      const Yb = tf.tensor2d(by);
+      boxHead = tf.sequential({layers:[
+        tf.layers.dense({inputShape:[Xb.shape[1]], units:128, activation:'relu'}),
+        tf.layers.dropout({rate:0.2}),
+        tf.layers.dense({units:4, activation:'sigmoid'}),   // [cx, cy, w, h]
+      ]});
+      boxHead.compile({optimizer: tf.train.adam(+document.getElementById('lr').value),
+                       loss:'meanSquaredError'});
+      await boxHead.fit(Xb, Yb, {
+        epochs, batchSize: 16, shuffle: true,
+        callbacks: { onEpochEnd: async (ep, logs) => {
+          document.getElementById('tbar').style.width =
+            (clsShare + (100-clsShare)*(ep+1)/epochs) + '%';
+          document.getElementById('tmetrics').innerHTML +=
+            '';
+          document.getElementById('tmetrics').innerHTML =
+            `<span>Box model <b>${ep+1}/${epochs}</b></span>` +
+            `<span>box loss <b>${logs.loss.toFixed(4)}</b></span>`;
+          await tf.nextFrame();
+        }}
+      });
+      Xb.dispose(); Yb.dispose();
+    }
+    protos = computeProtos(usable.map(c => pick(c).map(e=>e.feat)), names);
+    const secs = ((performance.now()-t0)/1000).toFixed(1);
+    document.getElementById('tbar').style.width = '100%';
+    msg.textContent = `\u2705 Trained in ${secs}s on this computer \u2014 test it live below.`
+      + (low.length ? ` \u26a0\ufe0f Below the recommended ${min}/class: ${low.join(', ')} \u2014 it will work, but more photos = better.` : '');
+    document.getElementById('testCard').style.display = '';
+    document.getElementById('btnExport').disabled = false;
+    document.getElementById('mode').value = task==='detect' ? 'detect' : 'classify';
+    setStep(4);
+  } catch(e) {
+    msg.className = 'msg err';
+    msg.textContent = 'Training failed: ' + e.message +
+      ' \u2014 try fewer examples or reload the page.';
+  } finally {
+    X.dispose(); Y.dispose();
+    document.getElementById('btnTrain').disabled = false;
+  }
 }
 
-/* Render loop: every animation frame, draw the CURRENT camera image together
-   with the MOST RECENT results — nothing ever blinks between updates. */
+/* ============ live test ============ */
+let lastBoxW = null, lastLabel = null, lastDetName = null, lastDetConf = 0;
+async function toggleLive(){
+  liveOn = !liveOn;
+  document.getElementById('btnLive').textContent = liveOn ? '\u23f8 Stop' : '\u25b6 Start Live Test';
+  if (liveOn) { lastBoxW = null; lastLabel = null; renderLoopW(); inferLoopW(); }
+}
+function smoothBox(prev, next){
+  if (!prev) return next;
+  const A = 0.45;
+  return next.map((v,i) => prev[i] + A*(v - prev[i]));
+}
 function renderLoopW(){
   if (!liveOn) return;
   const video = document.getElementById('cam');
@@ -696,23 +938,31 @@ function renderLoopW(){
     tv.width = video.videoWidth; tv.height = video.videoHeight;
     tx.drawImage(video, 0, 0);
     const mode = document.getElementById('mode').value;
-    if (mode === 'detect') {
-      for (const d of lastDetsW) {
-        const [x1, y1, x2, y2] = d.box;
-        const x = x1*tv.width, y = y1*tv.height,
-              w = (x2-x1)*tv.width, h = (y2-y1)*tv.height;
-        const boxCol = d.name === 'none' ? '#8a857a' : '#c9a84c';
-        tx.strokeStyle = boxCol; tx.lineWidth = 3;
-        tx.strokeRect(x, y, w, h);
-        const label = `${d.name} ${(100*d.conf).toFixed(0)}%`;
-        tx.font = '18px Kanit, sans-serif';
-        const tw = tx.measureText(label).width + 14;
-        tx.fillStyle = 'rgba(20,17,12,.82)';
-        tx.fillRect(x, Math.max(0, y-26), tw, 26);
-        tx.fillStyle = boxCol;
-        tx.fillText(label, x+7, Math.max(19, y-7));
-      }
-    } else if (lastLabel) {
+    if (mode === 'detect' && lastBoxW) {
+      const isNone = lastDetName === 'none';
+      const col = isNone ? '#8a857a' : '#c9a84c';
+      const [cx, cy, w, h] = lastBoxW;
+      const x = (cx - w/2)*tv.width, y = (cy - h/2)*tv.height;
+      tx.strokeStyle = col; tx.lineWidth = 3;
+      tx.strokeRect(x, y, w*tv.width, h*tv.height);
+      const px = cx*tv.width, py = cy*tv.height;
+      tx.beginPath(); tx.moveTo(px-14,py); tx.lineTo(px+14,py);
+      tx.moveTo(px,py-14); tx.lineTo(px,py+14);
+      tx.strokeStyle = col; tx.lineWidth = 2; tx.stroke();
+      const label = `${lastDetName} ${(100*lastDetConf).toFixed(0)}%`;
+      tx.font = '18px Kanit, sans-serif';
+      let tw = tx.measureText(label).width + 14;
+      tx.fillStyle = 'rgba(20,17,12,.82)';
+      tx.fillRect(x, Math.max(0, y-26), tw, 26);
+      tx.fillStyle = col;
+      tx.fillText(label, x+7, Math.max(19, y-7));
+      const cLabel = `center (${Math.round(px)}, ${Math.round(py)})px \u00b7 (${(100*cx).toFixed(0)}%, ${(100*cy).toFixed(0)}%)`;
+      tw = tx.measureText(cLabel).width + 14;
+      tx.fillStyle = 'rgba(20,17,12,.82)';
+      tx.fillRect(8, tv.height-34, tw, 26);
+      tx.fillStyle = col;
+      tx.fillText(cLabel, 15, tv.height-15);
+    } else if (mode === 'classify' && lastLabel) {
       tx.font = '20px Kanit, sans-serif';
       const tw = tx.measureText(lastLabel).width + 16;
       tx.fillStyle = 'rgba(20,17,12,.82)';
@@ -723,49 +973,36 @@ function renderLoopW(){
   }
   requestAnimationFrame(renderLoopW);
 }
-
-/* Inference loop: updates results in the background; the render loop above
-   keeps the picture and boxes on screen the whole time. */
 async function inferLoopW(){
   const video = document.getElementById('cam');
   while (liveOn && head) {
     if (!video.videoWidth || video.readyState < 2) { await tf.nextFrame(); continue; }
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
-
-    if (mode === 'detect') {
-      if (!detector) {
-        document.getElementById('fpsTag').textContent = 'Loading detector (~6 MB, once)...';
-        detector = await cocoSsd.load({base:'lite_mobilenet_v2'});
-      }
-      const minScore = +document.getElementById('sensSel').value;
-      const dets = (await detector.detect(video)).filter(d => d.score > minScore);
-      const out = [];
-      const W = video.videoWidth, H = video.videoHeight;
-      for (const d of dets.slice(0, 6)) {          // cap per-frame work
-        const {name, conf} = await classifyCrop(video, d.bbox);
-        const [x, y, w, h] = d.bbox;
-        out.push({name, conf, box: [x/W, y/H, (x+w)/W, (y+h)/H]});
-      }
-      lastDetsW = smoothDetsW(lastDetsW, out);
-      document.getElementById('pred').innerHTML = lastDetsW.length
-        ? lastDetsW.map(d => `<div class="prow"><div class="pname" style="width:auto">📦 ${d.name} ${(100*d.conf).toFixed(0)}%</div></div>`).join('')
-        : '<div class="msg">No boxes yet — set sensitivity to "Sensitive", move closer, add light. '
-          + 'Boxes come from a general detector: objects it has never seen may get no box at all '
-          + '(that is the limit of in-browser detection) — Classify mode still works for them.</div>';
-    } else {
-      const r = await predictEl(video);
-      const vals = r.vals;
-      lastLabel = r.name === 'none'
-        ? `none (${(100*r.conf).toFixed(0)}%)`
-        : `${r.name} ${(100*r.conf).toFixed(0)}%`;
-      document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
+    const r = await predictEl(video);
+    const vals = r.vals;
+    const bars = head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
           <div class="pval">${(100*vals[i]).toFixed(1)}%</div></div>`).join('');
+    if (mode === 'detect' && r.box) {
+      lastDetName = r.name; lastDetConf = r.conf;
+      lastBoxW = smoothBox(lastBoxW, r.box);
+      const [cx, cy] = lastBoxW;
+      const px = Math.round(cx*video.videoWidth), py = Math.round(cy*video.videoHeight);
+      document.getElementById('pred').innerHTML =
+        `<div class="prow"><div class="pname" style="width:auto">
+          \ud83d\udccd <b>${r.name}</b> ${(100*r.conf).toFixed(0)}%
+          &nbsp;\u00b7&nbsp; center (${px}, ${py})px &nbsp;\u00b7&nbsp; (${(100*cx).toFixed(0)}%, ${(100*cy).toFixed(0)}%)
+        </div></div>` + bars;
+    } else {
+      lastLabel = r.name === 'none'
+        ? `none (${(100*r.conf).toFixed(0)}%)`
+        : `${r.name} ${(100*r.conf).toFixed(0)}%`;
+      document.getElementById('pred').innerHTML = bars;
     }
     document.getElementById('fpsTag').textContent =
-      (1000/(performance.now()-t0)).toFixed(0) + ' detections/sec';
+      (1000/(performance.now()-t0)).toFixed(0) + ' predictions/sec';
     await tf.nextFrame();
   }
 }
@@ -789,7 +1026,6 @@ echo ============================================
 echo  Done! To run your model:
 echo    venv\\Scripts\\activate
 echo    python predict.py --source 0
-echo    python predict.py --source 0 --mode detect
 echo ============================================
 pause
 exit /b 0
@@ -826,7 +1062,6 @@ echo "============================================"
 echo " Done! To run your model:"
 echo "   source venv/bin/activate"
 echo "   python predict.py --source 0"
-echo "   python predict.py --source 0 --mode detect"
 echo "============================================"
 `;
 const PY_REQS = `# TESR Web Trainer - Python inference (Python 3.10 - 3.12)
@@ -837,83 +1072,84 @@ opencv-python
 `;
 const PY_README = `# Use your TESR web-trained model in Python
 
-## Fastest way (recommended)
+Your export knows its own task (\`config.json\`):
+- **classification** - class name for the whole frame
+- **detection** - your trained bounding box: class + box + **center position**
 
-1. Check Python: TensorFlow needs **3.10 - 3.12** (\`python --version\`).
-   Have 3.13/3.14 (e.g. new Ubuntu)? Install 3.12 first:
-   \`sudo apt install python3.12 python3.12-venv\` (Windows: python.org)
-2. Run the installer in this folder — it creates a venv and installs everything:
-   - **Windows:** double-click \`install_windows.bat\`
-   - **Linux/macOS:** \`bash install_linux.sh\`
-3. Run your model:
+## Step 1 - Check Python (important!)
 
-       # Windows: venv\\Scripts\\activate     Linux: source venv/bin/activate
-       python predict.py --source 0                # classify, live webcam
-       python predict.py --source 0 --mode detect  # boxes + your classes
-       python predict.py --source my_photo.jpg     # single image
-       # press q to quit the webcam window
+TensorFlow needs **Python 3.10 - 3.12** (\`python --version\`).
+Have 3.13/3.14 (e.g. new Ubuntu)? Install 3.12 first:
+\`sudo apt install python3.12 python3.12-venv\` (Windows: python.org)
 
-First run downloads the vision backbone (~10 MB); first \`--mode detect\` run
-also downloads a general box detector (~23 MB). Both are cached after that.
+## Step 2 - Install (once)
 
-## How "none" works (why it will not guess blindly)
+Run the installer in this folder - it creates a venv and installs 3 packages
+(\`tensorflow-cpu\`, \`numpy\`, \`opencv-python\`):
+- **Windows:** double-click \`install_windows.bat\`
+- **Linux/macOS:** \`bash install_linux.sh\`
 
-Two gates decide when the answer is **none**:
+## Step 3 - Run
 
-1. **Confidence** — below \`--min-conf\` (default 0.65) → none
-2. **Similarity** — \`prototypes.json\` (exported with your model) remembers what
-   your training photos look like. A frame that looks like *none* of your
-   classes becomes **none even at 100% classifier confidence**. This is what
-   stops an empty desk from being called your first class.
+    # Windows: venv\\Scripts\\activate     Linux: source venv/bin/activate
+    python predict.py --source 0            # live webcam, press q to quit
+    python predict.py --source my_photo.jpg # single image
 
-Best results: also train a real \`background\` class of your empty scene.
+Detection models draw the box, a crosshair at the object center, and print
+the center as pixels + percent - ready to feed a robot arm or a conveyor PLC.
+When nothing it knows is in view, the answer is **"none"** (see below).
+
+## How "none" works (two gates)
+
+1. **Confidence** - below \`--min-conf\` (default 0.65) -> none
+2. **Similarity** - \`prototypes.json\` remembers what your training photos look
+   like; a frame that resembles none of your classes -> none even at 100%
+   classifier confidence. This is what stops an empty desk from being called
+   your first class.
+
+Best results: also train a \`background\` class of your empty scene.
 
 ## Options
 
 | Option | What it does |
 |---|---|
-| \`--mode detect\` | Boxes from a general detector + your class on each box |
-| \`--sens 0.35\` | Detect mode box sensitivity (lower = more boxes) |
 | \`--min-conf 0.65\` | Confidence gate for "none" |
 | \`--proto-th 0.7\` | Override the similarity gate threshold |
 | \`--no-proto\` | Disable the similarity gate |
-| \`--norm zero_one\` | Try if predictions look wrong (pixel-scaling convention) |
+| \`--norm zero_one\` | Try if predictions look wrong (default comes from config.json) |
 | \`--source 1\` | Other camera index if the camera will not open |
 
 ## Troubleshooting
 
-- **"TensorFlow is not installed for this Python"** → step 1 (needs 3.10-3.12)
-- **Camera will not open** → try \`--source 0\` / \`--source 1\`; close apps using
+- **"TensorFlow is not installed for this Python"** -> Step 1 (needs 3.10-3.12)
+- **Camera will not open** -> try \`--source 0\` / \`--source 1\`; close apps using
   the camera (browser Live Test tab, Zoom, Teams). Index 2+ is often an IR camera.
-- **Everything is "none"** → lower gates: \`--min-conf 0.5 --proto-th 0.6\`,
+- **Everything is "none"** -> lower gates: \`--min-conf 0.5 --proto-th 0.6\`,
   and collect more varied training photos
-- **Real object shows "none" in detect mode** → the general detector may not
-  box unusual custom objects (its honest limit); lower \`--sens 0.2\`, or use
-  classify mode / the TESR Desktop Trainer for true custom detection
-- **Slow install** → it is TensorFlow (~300 MB), one time only; the installer
-  scripts already pick the smaller \`tensorflow-cpu\` build
+- **Box position looks rough** -> this lightweight detector predicts ONE object
+  per frame from global features; label more photos (60-100) with tight boxes,
+  or use the TESR Desktop Trainer (YOLO) for production-grade multi-object boxes
+- **Slow install** -> it is TensorFlow (~300 MB), one time only
 `;
 const PY_CODE = `"""Run a TESR AI Vision Web Trainer model in Python.
 
-Two modes, same as the web page:
-  classify (default)  whole-frame classification
-  detect              boxes from a general detector + YOUR classes on each box
+The zip you exported knows its own task (config.json):
+  classification  ->  class name for the whole frame
+  detection       ->  YOUR trained box: class + bounding box + CENTER position
 
 The "none" answer uses TWO gates:
   1. confidence gate  (--min-conf, default 0.65)
-  2. similarity gate  prototypes.json (exported with your model) remembers what
-     your training photos LOOK like; frames that look like none of your classes
-     become "none" even when the classifier is overconfident.
+  2. similarity gate  prototypes.json remembers what your training photos LOOK
+     like; frames that look like none of your classes become "none" even when
+     the classifier is overconfident.
 
 Install:  run install_windows.bat / install_linux.sh  (or see README_PYTHON.md)
-Run:      python predict.py --source 0
-          python predict.py --source 0 --mode detect
-          python predict.py --source photo.jpg
+Run:      python predict.py --source 0          # live webcam, press q to quit
+          python predict.py --source photo.jpg  # single image
 """
 import argparse
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -933,16 +1169,10 @@ Fix: create a virtual environment with Python 3.12 and install there.
       pip install -r requirements.txt
 """
 
-# General-purpose box detector for --mode detect (downloaded once, ~23 MB)
-SSD_DIR = Path("models")
-SSD_PROTO = ("https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/"
-             "master/deploy.prototxt")
-SSD_MODEL = ("https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/"
-             "master/mobilenet_iter_73000.caffemodel")
 
-
-def load_head(model_json_path):
-    """Read a TensorFlow.js LayersModel (dense head) directly with NumPy."""
+def load_head(model_json_path, out_act):
+    """Read a TensorFlow.js dense head (W1,b1,W2,b2) directly with NumPy.
+    out_act: 'softmax' for the class head, 'sigmoid' for the box head."""
     model_json_path = Path(model_json_path)
     spec = json.loads(model_json_path.read_text(encoding="utf-8"))
     manifest = spec["weightsManifest"][0]
@@ -957,22 +1187,23 @@ def load_head(model_json_path):
         arrays.append(data[offset:offset + n].reshape(w["shape"]))
         offset += n
     if offset != data.size:
-        raise SystemExit("weights.bin size does not match model.json manifest")
+        raise SystemExit(f"{bin_path.name} size does not match its manifest")
     if len(arrays) != 4:
-        raise SystemExit(f"Expected 4 weight arrays (W1,b1,W2,b2), got {len(arrays)}")
+        raise SystemExit(f"Expected 4 weight arrays in {model_json_path.name}, got {len(arrays)}")
     W1, b1, W2, b2 = arrays
 
     def head(x):
         h = np.maximum(x @ W1 + b1, 0.0)
         z = h @ W2 + b2
-        e = np.exp(z - z.max(axis=-1, keepdims=True))
-        return e / e.sum(axis=-1, keepdims=True)
+        if out_act == "softmax":
+            e = np.exp(z - z.max(axis=-1, keepdims=True))
+            return e / e.sum(axis=-1, keepdims=True)
+        return 1.0 / (1.0 + np.exp(-z))          # sigmoid
 
     return head
 
 
 def load_prototypes(path):
-    """prototypes.json = per-class feature centroids captured at training time."""
     p = Path(path)
     if not p.exists():
         return None
@@ -1004,9 +1235,8 @@ def features(backbone, rgb, norm):
     return np.asarray(backbone(img[None, ...], training=False))[0]
 
 
-def decide(feat, head, names, min_conf, proto):
-    """Class name + confidence, or 'none' when either gate rejects the frame."""
-    probs = head(feat[None])[0]
+def decide(feat, cls_head, names, min_conf, proto):
+    probs = cls_head(feat[None])[0]
     i = int(np.argmax(probs))
     conf = float(probs[i])
     sim = None
@@ -1016,46 +1246,7 @@ def decide(feat, head, names, min_conf, proto):
     name = names[i]
     if conf < min_conf or (sim is not None and sim < proto["thr"]):
         name = "none"
-    return name, conf, sim
-
-
-# ---------------- detect mode ----------------
-def _download(url, dst):
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        return
-    print(f"Downloading {dst.name} ({url.split('/')[-1]}) — one time only...")
-    urllib.request.urlretrieve(url, dst)
-    print(f"  saved to {dst} ({dst.stat().st_size/1e6:.1f} MB)")
-
-
-def load_detector():
-    import cv2
-
-    proto, model = SSD_DIR / "deploy.prototxt", SSD_DIR / "mobilenet_ssd.caffemodel"
-    _download(SSD_PROTO, proto)
-    _download(SSD_MODEL, model)
-    return cv2.dnn.readNetFromCaffe(str(proto), str(model))
-
-
-def detect_boxes(net, bgr, sens):
-    """Generic object proposals -> [(x1,y1,x2,y2), ...] in pixels."""
-    import cv2
-
-    h, w = bgr.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(bgr, (300, 300)),
-                                 0.007843, (300, 300), 127.5)
-    net.setInput(blob)
-    out = net.forward()          # (1, 1, N, 7): [_, class, conf, x1, y1, x2, y2]
-    boxes = []
-    for det in out[0, 0]:
-        if float(det[2]) < sens:
-            continue
-        x1 = max(0, int(det[3] * w)); y1 = max(0, int(det[4] * h))
-        x2 = min(w, int(det[5] * w)); y2 = min(h, int(det[6] * h))
-        if x2 - x1 > 8 and y2 - y1 > 8:
-            boxes.append((x1, y1, x2, y2))
-    return boxes[:6]             # cap per-frame work, same as the web page
+    return name, conf
 
 
 def open_camera(idx):
@@ -1072,13 +1263,24 @@ def open_camera(idx):
     return None
 
 
-def annotate(bgr, x1, y1, x2, y2, label, is_none):
+def draw_detection(bgr, name, conf, box):
+    """box = [cx, cy, w, h] normalized. Draws box + center crosshair + coords."""
     import cv2
 
+    H, W = bgr.shape[:2]
+    is_none = name == "none"
     color = (140, 140, 140) if is_none else (76, 168, 201)[::-1]
+    cx, cy, bw, bh = box
+    px, py = int(cx * W), int(cy * H)
+    x1, y1 = int((cx - bw / 2) * W), int((cy - bh / 2) * H)
+    x2, y2 = int((cx + bw / 2) * W), int((cy + bh / 2) * H)
     cv2.rectangle(bgr, (x1, y1), (x2, y2), color, 2)
-    cv2.putText(bgr, label, (x1 + 4, max(20, y1 - 8)),
+    cv2.drawMarker(bgr, (px, py), color, cv2.MARKER_CROSS, 22, 2)
+    cv2.putText(bgr, f"{name} {conf*100:.0f}%", (max(2, x1 + 4), max(20, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    cv2.putText(bgr, f"center ({px}, {py})px  ({cx*100:.0f}%, {cy*100:.0f}%)",
+                (8, H - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    return px, py
 
 
 def main():
@@ -1088,15 +1290,9 @@ def main():
         print(PY_HELP.format(v=f"{sys.version_info.major}.{sys.version_info.minor}"))
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="model.json")
-    ap.add_argument("--classes", default="classes.txt")
-    ap.add_argument("--prototypes", default="prototypes.json")
     ap.add_argument("--source", default="0", help="image path, or 0 for webcam")
-    ap.add_argument("--mode", choices=["classify", "detect"], default="classify",
-                    help="classify = whole frame, detect = boxes + your classes")
-    ap.add_argument("--sens", type=float, default=0.35,
-                    help="detect mode: box sensitivity (lower = more boxes)")
-    ap.add_argument("--norm", choices=["zero_one", "pm1"], default="pm1")
+    ap.add_argument("--norm", choices=["zero_one", "pm1"], default=None,
+                    help="pixel scaling; default comes from config.json")
     ap.add_argument("--min-conf", type=float, default=0.65,
                     help='below this confidence the answer is "none"')
     ap.add_argument("--proto-th", type=float, default=None,
@@ -1107,43 +1303,53 @@ def main():
 
     import cv2
 
-    names = Path(args.classes).read_text(encoding="utf-8").split()
-    head = load_head(args.model)
-    proto = None if args.no_proto else load_prototypes(args.prototypes)
+    cfg = {}
+    if Path("config.json").exists():
+        cfg = json.loads(Path("config.json").read_text(encoding="utf-8"))
+    task = cfg.get("task", "classification")
+    norm = args.norm or cfg.get("norm", "pm1")
+
+    names = Path("classes.txt").read_text(encoding="utf-8").split()
+    cls_head = load_head("model.json", "softmax")
+    box_head = None
+    if task == "detection":
+        if not Path("box_model.json").exists():
+            raise SystemExit("config.json says detection but box_model.json is missing "
+                             "— re-export from the web trainer")
+        box_head = load_head("box_model.json", "sigmoid")
+    proto = None if args.no_proto else load_prototypes("prototypes.json")
+    if proto is not None and args.proto_th is not None:
+        proto["thr"] = args.proto_th
+
+    print(f"Task: {task}  |  classes: {', '.join(names)}")
     if proto is not None:
-        if args.proto_th is not None:
-            proto["thr"] = args.proto_th
-        print(f'"none" gates: confidence < {args.min_conf}  OR  '
-              f'similarity < {proto["thr"]:.2f}  (prototypes.json loaded)')
+        print(f'"none" gates: confidence < {args.min_conf}  OR  similarity < {proto["thr"]:.2f}')
     else:
-        print(f'"none" gate: confidence < {args.min_conf}  '
-              '(no prototypes.json — re-export from the web trainer to get it)')
+        print(f'"none" gate: confidence < {args.min_conf}  (no prototypes.json found)')
     backbone = load_backbone()
-    det = load_detector() if args.mode == "detect" else None
 
     def run_frame(bgr):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        if args.mode == "classify":
-            name, conf, _ = decide(features(backbone, rgb, args.norm),
-                                   head, names, args.min_conf, proto)
-            annotate(bgr, 2, 2, bgr.shape[1] - 2, bgr.shape[0] - 2,
-                     f"{name} {conf*100:.0f}%", name == "none")
-            return [(name, conf)]
-        results = []
-        for (x1, y1, x2, y2) in detect_boxes(det, bgr, args.sens):
-            crop = rgb[y1:y2, x1:x2]
-            name, conf, _ = decide(features(backbone, crop, args.norm),
-                                   head, names, args.min_conf, proto)
-            annotate(bgr, x1, y1, x2, y2, f"{name} {conf*100:.0f}%", name == "none")
-            results.append((name, conf))
-        return results
+        feat = features(backbone, rgb, norm)
+        name, conf = decide(feat, cls_head, names, args.min_conf, proto)
+        if box_head is None:
+            color = (120, 120, 120) if name == "none" else (60, 200, 255)
+            cv2.putText(bgr, f"{name} {conf*100:.0f}%", (10, 34),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+            return name, conf, None
+        box = [float(v) for v in box_head(feat[None])[0]]
+        px, py = draw_detection(bgr, name, conf, box)
+        return name, conf, (px, py)
 
     if not args.source.isdigit():
         bgr = cv2.imread(args.source)
         if bgr is None:
             raise SystemExit("Could not read image: " + args.source)
-        for name, conf in run_frame(bgr):
-            print(f"Prediction: {name}  ({conf*100:.1f}%)")
+        name, conf, center = run_frame(bgr)
+        msg = f"Prediction: {name}  ({conf*100:.1f}%)"
+        if center is not None:
+            msg += f"  center={center}px"
+        print(msg)
         cv2.imshow("TESR Web Model - Python (press any key)", bgr)
         cv2.waitKey(0); cv2.destroyAllWindows()
         return
@@ -1172,28 +1378,40 @@ if __name__ == "__main__":
     main()
 `;
 
+async function saveModelTo(model, weightsName){
+  let artifacts = null;
+  await model.save(tf.io.withSaveHandler(async a => {
+    artifacts = a;
+    return {modelArtifactsInfo: {dateSaved: new Date(), modelTopologyType: 'JSON'}};
+  }));
+  const json = JSON.stringify({
+    modelTopology: artifacts.modelTopology,
+    format: 'layers-model',
+    generatedBy: 'TESR AI Vision Web Trainer',
+    convertedBy: null,
+    weightsManifest: [{paths: [weightsName], weights: artifacts.weightSpecs}],
+  });
+  return {json, weights: artifacts.weightData};
+}
 async function exportModel(){
   if (!head) return;
   const m = document.getElementById('eMsg');
   m.textContent = 'Building your export zip...';
   try {
-    // Capture the model artifacts in memory (instead of separate downloads)
-    let artifacts = null;
-    await head.save(tf.io.withSaveHandler(async a => {
-      artifacts = a;
-      return {modelArtifactsInfo: {dateSaved: new Date(), modelTopologyType: 'JSON'}};
-    }));
-    const modelJson = JSON.stringify({
-      modelTopology: artifacts.modelTopology,
-      format: 'layers-model',
-      generatedBy: 'TESR AI Vision Web Trainer',
-      convertedBy: null,
-      weightsManifest: [{paths: ['weights.bin'], weights: artifacts.weightSpecs}],
-    });
     const zip = new JSZip();
-    zip.file('model.json', modelJson);
-    zip.file('weights.bin', artifacts.weightData);
+    const cls = await saveModelTo(head, 'weights.bin');
+    zip.file('model.json', cls.json);
+    zip.file('weights.bin', cls.weights);
+    if (boxHead){
+      const bm = await saveModelTo(boxHead, 'box_weights.bin');
+      zip.file('box_model.json', bm.json);
+      zip.file('box_weights.bin', bm.weights);
+    }
     zip.file('classes.txt', head.classNames.join('\n'));
+    zip.file('config.json', JSON.stringify({
+      task: boxHead ? 'detection' : 'classification',
+      norm: 'pm1', input: 224,
+      generatedBy: 'TESR AI Vision Web Trainer'}, null, 2));
     if (protos) zip.file('prototypes.json', JSON.stringify({
       names: protos.names,
       centroids: protos.C.map(c => c.map(v => +v.toFixed(5))),
@@ -1209,13 +1427,13 @@ async function exportModel(){
     a.href = URL.createObjectURL(blob);
     a.download = 'tesr-web-model.zip';
     a.click();
-    m.textContent = 'Downloaded tesr-web-model.zip — unzip it and follow README_PYTHON.md';
+    m.textContent = 'Downloaded tesr-web-model.zip \u2014 unzip it and follow README_PYTHON.md';
   } catch (e) {
     m.textContent = 'Export failed: ' + e.message;
   }
 }
 
-checkHW(); renderClasses();
+checkHW(); setTask('detect'); renderClasses();
 </script>
 </body>
 </html>

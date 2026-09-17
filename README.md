@@ -2,9 +2,11 @@
 
 **Train your own image-recognition AI — right in your browser. Nothing to install.**
 
-Open the page, show your objects to the camera, press Train, and watch the AI
-recognize them live — with detection boxes and confidence scores. Everything runs
-on **your own computer inside the browser**; your photos never leave your machine.
+Choose your task, show your objects to the camera, draw boxes (detection) or
+skip straight to training (classification), and watch the AI work live —
+including the object's **center position (x, y)**, the number a robot arm or
+conveyor system needs. Everything runs on **your own computer inside the
+browser**; your photos never leave your machine.
 
 > 🎓 Built by [TESR — Thai Embedded Systems and Robotics](https://tesrshop.com)
 > for makers, students and engineers. *Learn it. Build it. Deploy it. For real.*
@@ -15,118 +17,104 @@ on **your own computer inside the browser**; your photos never leave your machin
 
 | | |
 |---|---|
-| 🧩 **Define classes** | Tell the AI what to tell apart — e.g. `remote` vs `powerbank` |
-| 📷 **Collect examples** | Hold the capture button and move the object around, or upload image files — hover any photo to delete it |
-| ✨ **Auto augmentation** | One click generates ×2–×5 more images (flips, rotations, lighting) right in the browser |
-| 🧠 **Train in seconds** | Transfer learning runs on your GPU via WebGL/WebGPU — typically under 10 seconds |
-| 🎯 **Test live** | Two modes: **Classify** the whole frame, or **Detect** — boxes drawn around objects, each labeled with *your* classes. Adjustable box **sensitivity**, and when confidence is low the answer is **"none"** instead of a wrong guess |
-| 💾 **Export** | One .zip with your model **plus a ready-to-run Python sample** — use it on your PC from an image or webcam |
+| 🧭 **Choose your task** | **Object Detection** (what & where — you draw the boxes) or **Classification** (what is it — fastest, no boxes) |
+| 🧩 **Define classes** | e.g. `jetson_board` vs `raspberry_pi` — add a `background` class for best results |
+| 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). Keyboard-fast: Enter = save & next |
+| ✨ **Auto augmentation** | ×2–×5 more images in one click — boxes are transformed together with the image |
+| 🧠 **Train in seconds** | Transfer learning on your GPU (WebGL/WebGPU); detection trains a classifier + a box model |
+| 🎯 **Test live** | Box + crosshair at the object **center**, shown in pixels and percent on screen |
+| 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
+| 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
+
+## 📏 How many photos do I need?
+
+The page tracks this for you, per class, with live ✔/⚠ counters:
+
+| Task | Minimum | Noticeably better |
+|---|---|---|
+| Object Detection | **40 labeled photos / class** | 80+ |
+| Classification | **30 photos / class** | 60+ |
+
+Variety beats quantity: change angle, distance, background and lighting.
 
 ## 🔒 Privacy by design
 
 ```mermaid
 flowchart LR
     A[📷 Your camera] --> B[🧠 AI training<br>inside your browser]
-    B --> C[🎯 Live predictions<br>on your screen]
+    B --> C[🎯 Live box + center<br>on your screen]
     B -.->|nothing is uploaded| X[(☁️ No server)]
 ```
 
 There is **no backend**. The page is static — all computation (feature extraction,
-training, inference) happens in your browser tab using [TensorFlow.js](https://www.tensorflow.org/js).
-Close the tab and everything is gone, except the model you chose to download.
+labeling, training, inference) happens in your browser tab using
+[TensorFlow.js](https://www.tensorflow.org/js). Close the tab and everything is
+gone, except the model you chose to download.
 
 ## 🚀 Try it
 
-1. Open the page https://tesr-channel.github.io/AI_vision_Trainer/
-2. The page checks your device first and tells you honestly whether it can train:
-   - 🟢 GPU acceleration found (WebGL/WebGPU) — trains comfortably
-   - 🟡 CPU only — works, keep datasets small
-   - 🔴 Unsupported browser — it will tell you what to use instead
-3. Add **at least 2 classes** → collect **30–50 examples each** → **Train** → point the camera and enjoy
-
-**Tips for good results:** vary the angle, distance, background and lighting while
-capturing. Add a "background / none" class so the AI knows what *nothing* looks like.
-
-## 🎯 The "none" answer (two gates)
-
-A classifier always picks *some* class — and can even be overconfident on an
-empty scene. So **two gates** decide when the answer is "none":
-
-1. **Confidence** — below your chosen threshold (none if &lt;50% / 65% / 80%)
-2. **Similarity** — at training time the app remembers what your classes *look
-   like* (feature prototypes). A frame that resembles none of your training
-   photos becomes "none" even at 100% classifier confidence.
-
-The prototypes are saved into your export as `prototypes.json`, so the Python
-sample gets the same protection. For best results, also add a "background"
-class with photos of your empty scene.
-
-In **Detect** mode you can also adjust the box **sensitivity**: boxes come from a
-general-purpose detector (COCO-SSD), so everyday objects work best — unusual
-custom objects may get no box at all; that is the honest limit of in-browser
-detection today.
-
-## 🖥 Requirements
-
-- A recent **Chrome, Edge or Firefox** on a laptop/desktop (works on many phones too)
-- A webcam (or use file upload instead)
-- Internet connection on first load only (libraries ~10 MB, cached afterwards)
+1. Open https://tesr-channel.github.io/AI_vision_Trainer/
+2. The page checks your device first and tells you honestly whether it can train
+   (🟢 GPU / 🟡 CPU-only / 🔴 unsupported)
+3. Pick **Object Detection** or **Classification** → add **2+ classes** →
+   capture → (detection) draw boxes → **Train** → point the camera and enjoy
 
 ## 🧠 How it works (for the curious)
 
-The page loads **MobileNet**, a pre-trained vision network, and uses it as a
-feature extractor. Your examples are converted to compact feature vectors, and a
-small neural network head is trained on top of them — that's why training takes
-seconds, not hours. In **Detect** mode, **COCO-SSD** (also in-browser) proposes
-bounding boxes around objects, and your freshly trained classifier names each box.
+**MobileNet** (in-browser) turns each photo into a compact feature vector.
+Training then takes seconds because only two small heads learn on top:
 
 ```mermaid
 flowchart LR
     F[📷 Frame] --> M[MobileNet<br>feature extractor]
-    M --> H[Your trained head<br>softmax classifier]
-    H --> P[🎯 Class + confidence]
+    M --> H[Class head<br>softmax]
+    M --> B[Box head<br>cx, cy, w, h]
+    H --> P[🎯 name + confidence]
+    B --> Q[📍 box + center x,y]
 ```
+
+**The honest limit:** this lightweight detector predicts **one object per
+frame** from global features — perfect for learning the full detection workflow
+(collect → label → train → deploy) and for many single-object tasks. For
+multi-object, production-grade boxes, the same workflow scales up in the
+**TESR Desktop Trainer (YOLO)**.
+
+**The "none" answer (two gates):** a classifier always picks *some* class — and
+can be overconfident on an empty scene. So besides the confidence threshold, at
+training time the app remembers what your classes *look like* (feature
+prototypes, saved as `prototypes.json`). A frame that resembles none of your
+training photos answers **"none"** even at 100% classifier confidence.
 
 ## 🐍 Use your model in Python
 
-The **Export** button gives you one `tesr-web-model.zip` containing everything:
+The **Export** button gives you one `tesr-web-model.zip`:
 
 ```
-model.json + weights.bin   your trained model (TensorFlow.js format)
-classes.txt                class names, one per line
-prototypes.json            class "signatures" that power the "none" answer
-predict.py                 classify OR detect mode, image file or live webcam
-requirements.txt           the Python libraries it needs
-install_windows.bat        one-click installer (Windows)
-install_linux.sh           one-command installer (Linux/macOS)
-README_PYTHON.md           step-by-step instructions
+model.json + weights.bin        class model (TensorFlow.js format)
+box_model.json + box_weights.bin box model (detection exports)
+config.json                     task + preprocessing settings
+classes.txt                     class names, one per line
+prototypes.json                 class "signatures" that power the "none" answer
+predict.py                      webcam or image — draws box + center, prints position
+requirements.txt                3 packages: tensorflow-cpu, numpy, opencv-python
+install_windows.bat             one-click installer (Windows)
+install_linux.sh                one-command installer (Linux/macOS)
+README_PYTHON.md                step-by-step instructions
 ```
 
-Quick start on your computer (**Python 3.10–3.12** — TensorFlow does not support
-3.13/3.14 yet; on new Ubuntu releases create a venv with `python3.12 -m venv venv` first,
-as explained step by step in `README_PYTHON.md`):
+Quick start (**Python 3.10–3.12** — TensorFlow does not support 3.13/3.14 yet;
+on new Ubuntu releases the installer tells you exactly what to do):
 
 ```bash
 unzip tesr-web-model.zip -d my-model && cd my-model
-bash install_linux.sh                       # Windows: double-click install_windows.bat
-source venv/bin/activate                    # Windows: venv\Scripts\activate
-python predict.py --source 0                # classify, live webcam — press q to quit
-python predict.py --source 0 --mode detect  # boxes + your classes, like the web page
+bash install_linux.sh               # Windows: double-click install_windows.bat
+source venv/bin/activate            # Windows: venv\Scripts\activate
+python predict.py --source 0        # live webcam — press q to quit
 ```
 
-The installers pick a compatible Python, create a venv and install just 3
-packages (`tensorflow-cpu`, `numpy`, `opencv-python`) — the `-cpu` build halves
-the download on Linux. First `--mode detect` run fetches a general box detector
-(~23 MB, once).
-
-How it works: the browser trained a small classifier head on top of **MobileNet**
-features. `predict.py` rebuilds that same two-stage pipeline in Python — the
-MobileNet backbone downloads automatically on first run (~10 MB, cached), and
-your head weights are read directly from `weights.bin` with NumPy (no converter
-library needed, so installation stays light and conflict-free).
-Answers become **"none"** via the two gates above (`--min-conf`, `--proto-th`),
-and if predictions ever look wrong, run with `--norm zero_one` (switches between
-the two common MobileNet pixel-scaling conventions).
+`predict.py` reads `config.json`, rebuilds the same pipeline in Python, draws
+the box and crosshair, and prints the **center in pixels and percent** — ready
+to feed MQTT, a PLC, or a robot arm.
 
 ## 📚 Learn more with TESR Academy
 
