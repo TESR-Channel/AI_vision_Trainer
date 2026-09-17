@@ -19,13 +19,13 @@ browser**; your photos never leave your machine.
 |---|---|
 | 🧭 **Choose your task** | **Object Detection** (what & where — you draw the boxes) or **Classification** (what is it — fastest, no boxes) |
 | 🧩 **Define classes** | e.g. `jetson_board` vs `raspberry_pi` — add a `background` class for best results |
-| 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). Keyboard-fast: Enter = save & next |
+| 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). **Scroll / Q / E rotates the box** to follow tilted objects. Keyboard-fast: Enter = save & next |
 | ✨ **Auto augmentation** | ×2–×5 more images in one click — boxes are transformed together with the image |
 | 🧠 **Train in seconds** | Transfer learning on your GPU (WebGL/WebGPU); detection trains a classifier + a box model |
 | 🎯 **Test live** | **Precise grid scan** finds the object wherever it is (~1 fps) or **Fast** smooth box; crosshair + **center** in pixels on screen |
 | 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
 | 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
-| 🗂 **Dataset export** | One click turns your photos into a ready **YOLO dataset** for offline training — detection (images + labels + data.yaml) or classification (folder per class), matching your chosen task |
+| 🗂 **Dataset export** | One click turns your photos into a ready **YOLO dataset** for offline training — detection (images + labels + data.yaml), **rotated boxes → YOLO OBB** automatically, or classification (folder per class), matching your chosen task |
 
 ## 📏 How many photos do I need?
 

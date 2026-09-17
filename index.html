@@ -317,8 +317,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
 <div class="modal" id="lblModal">
   <div class="mbox">
     <h3 id="lblTitle">Draw a box around the object</h3>
-    <p class="sub">Drag on the image to draw the box &mdash; make it tight around the object.
-      <b>Enter</b> = save &amp; next &middot; <b>X</b> = clear box &middot; <b>Esc</b> = close</p>
+    <p class="sub">Drag to draw a tight box &middot; <b>Scroll / Q / E</b> = rotate it to
+      follow a tilted object &middot; <b>R</b> = straighten &middot; <b>Enter</b> = save &amp; next
+      &middot; <b>X</b> = clear &middot; <b>Esc</b> = close</p>
     <canvas id="lblCv" width="560" height="420"></canvas>
     <div class="row" style="margin-top:14px">
       <button onclick="lblSaveNext()">&#10003; Save &amp; Next (Enter)</button>
@@ -348,7 +349,7 @@ let th='dark'; try{th=localStorage.getItem('tesr_theme')||'dark'}catch(e){}
 applyTheme(th);
 
 /* ============ state ============ */
-let classes = [];   // [{name, examples: [{feat, thumb, src, aug, box}]}]  box=[cx,cy,w,h] or null
+let classes = [];   // [{name, examples: [{feat, thumb, src, w, h, aug, box}]}]  box=[cx,cy,w,h(,angleDeg)] or null
 let net = null, head = null, boxHead = null, camOK = false, liveOn = false;
 let task = 'detect';                       // 'detect' | 'classify'
 const REC = {detect:{min:40, good:80}, classify:{min:30, good:60}};
@@ -381,9 +382,10 @@ function setTask(t){
   document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
   document.getElementById('dsHint').innerHTML = t==='detect'
     ? 'Your labeled photos as a ready-to-train <b>YOLO detection dataset</b> (images + '
-      + 'labels + data.yaml). Train it offline with <code>offline/3_train.py</code> for '
-      + 'production-grade boxes \u2014 your hand-drawn boxes are the labels, so no plain '
-      + 'background is needed. Generated \u2728 photos are excluded; YOLO augments during training.'
+      + 'labels + data.yaml). Rotated boxes export as <b>YOLO OBB</b> automatically. Train it '
+      + 'offline with <code>offline/3_train.py</code> for production-grade boxes \u2014 your '
+      + 'hand-drawn boxes are the labels, so no plain background is needed. Generated \u2728 '
+      + 'photos are excluded; YOLO augments during training.'
     : 'Your photos as a ready-to-train <b>YOLO classification dataset</b> (one folder per '
       + 'class). Train it offline with <code>offline/3_train.py</code> \u2014 the task is '
       + 'detected automatically. Generated \u2728 photos are excluded; YOLO augments during training.';
@@ -587,8 +589,10 @@ async function addExample(clsName, el, thumbURL){
   const feat = await f.array();
   f.dispose();
   const c = classes.find(x=>x.name===clsName);
+  const disp = makeDisp(el);
   c.examples.push({feat, thumb: thumbURL,
-                   src: makeDisp(el).toDataURL('image/jpeg', .85),
+                   src: disp.toDataURL('image/jpeg', .85),
+                   w: disp.width, h: disp.height,
                    aug: false, box: null});
   renderClasses();
 }
@@ -633,7 +637,28 @@ function clampBox(b){
   w = Math.min(Math.max(w, 0.02), 1); h = Math.min(Math.max(h, 0.02), 1);
   cx = Math.min(Math.max(cx, w/2), 1 - w/2);
   cy = Math.min(Math.max(cy, h/2), 1 - h/2);
-  return [cx, cy, w, h];
+  return b.length > 4 ? [cx, cy, w, h, b[4]] : [cx, cy, w, h];
+}
+function normAngle(a){ return ((a + 90) % 180 + 180) % 180 - 90; }
+function boxAngle(b){ return (b && b.length > 4) ? (b[4] || 0) : 0; }
+function obbCorners(b, W, H){
+  // rotated-rect corners in NORMALIZED coords; rotation done in pixel space
+  const [cx, cy, w, h] = b, a = boxAngle(b) * Math.PI / 180;
+  const cos = Math.cos(a), sin = Math.sin(a);
+  const px = cx*W, py = cy*H, hw = w*W/2, hh = h*H/2;
+  return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([dx,dy]) =>
+    [Math.min(1, Math.max(0, (px + dx*cos - dy*sin)/W)),
+     Math.min(1, Math.max(0, (py + dx*sin + dy*cos)/H))]);
+}
+function aabbBox(b, W, H){
+  // axis-aligned enclosure of a (possibly rotated) box - used by the in-browser trainer
+  if (!b) return null;
+  if (!boxAngle(b)) return b.slice(0, 4);
+  const cs = obbCorners(b, W || 640, H || 480);
+  const xs = cs.map(c=>c[0]), ys = cs.map(c=>c[1]);
+  const x1 = Math.min(...xs), x2 = Math.max(...xs);
+  const y1 = Math.min(...ys), y2 = Math.max(...ys);
+  return [(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1];
 }
 function openLbl(clsName, idx){
   if (task !== 'detect') return;
@@ -669,13 +694,17 @@ function drawLbl(){
   if (lblImg) x.drawImage(lblImg, 0, 0, cv.width, cv.height);
   const b = lblDrag || lblBox;
   if (b){
-    const [cx, cy, w, h] = b;
+    const [cx, cy, w, h] = b, px = cx*cv.width, py = cy*cv.height;
+    x.save(); x.translate(px, py); x.rotate(boxAngle(b) * Math.PI/180);
     x.strokeStyle = '#d8484c'; x.lineWidth = 3;
-    x.strokeRect((cx-w/2)*cv.width, (cy-h/2)*cv.height, w*cv.width, h*cv.height);
+    x.strokeRect(-w*cv.width/2, -h*cv.height/2, w*cv.width, h*cv.height);
+    x.restore();
     x.strokeStyle = '#c9a84c'; x.lineWidth = 2;
-    const px = cx*cv.width, py = cy*cv.height;
     x.beginPath(); x.moveTo(px-10,py); x.lineTo(px+10,py);
     x.moveTo(px,py-10); x.lineTo(px,py+10); x.stroke();
+    const a = Math.round(boxAngle(b));
+    if (a) { x.fillStyle = '#c9a84c'; x.font = '13px Kanit, sans-serif';
+             x.fillText(a + '\u00b0', px + 14, py - 8); }
   }
 }
 function lblPoint(ev){
@@ -693,7 +722,7 @@ function lblMove(ev){
   const p = lblPoint(ev);
   const x1 = Math.min(lblStart[0], p[0]), x2 = Math.max(lblStart[0], p[0]);
   const y1 = Math.min(lblStart[1], p[1]), y2 = Math.max(lblStart[1], p[1]);
-  lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1]);
+  lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, lblBox ? boxAngle(lblBox) : 0]);
   drawLbl();
 }
 function lblUp(ev){
@@ -722,9 +751,20 @@ function lblNav(d){
   const i = Math.min(Math.max(lblIdx + d, 0), c.examples.length - 1);
   if (i !== lblIdx) openLbl(lblCls, i);
 }
+function rotLbl(d){
+  if (!lblBox) { document.getElementById('lblMsg').textContent = 'Draw a box first, then rotate.'; return; }
+  if (lblBox.length < 5) lblBox.push(0);
+  lblBox[4] = d === 0 ? 0 : normAngle(boxAngle(lblBox) + d);
+  document.getElementById('lblMsg').textContent = 'angle ' + Math.round(lblBox[4]) + '\u00b0';
+  drawLbl();
+}
 function closeLbl(){ document.getElementById('lblModal').classList.remove('open'); }
 {
   const cv = document.getElementById('lblCv');
+  cv.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    rotLbl(ev.deltaY > 0 ? 2 : -2);
+  }, {passive:false});
   cv.addEventListener('mousedown', lblDown); cv.addEventListener('mousemove', lblMove);
   window.addEventListener('mouseup', lblUp);
   cv.addEventListener('touchstart', lblDown, {passive:false});
@@ -735,6 +775,9 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
     if (ev.key === 'Enter') { ev.preventDefault(); lblSaveNext(); }
     else if (ev.key === 'Escape') closeLbl();
     else if (ev.key === 'x' || ev.key === 'X') lblClear();
+    else if (ev.key === 'q' || ev.key === 'Q') rotLbl(-3);
+    else if (ev.key === 'e' || ev.key === 'E') rotLbl(3);
+    else if (ev.key === 'r' || ev.key === 'R') rotLbl(0);
     else if (ev.key === 'ArrowLeft') lblNav(-1);
     else if (ev.key === 'ArrowRight') lblNav(1);
   });
@@ -759,7 +802,7 @@ function augmentVariant(img, box){
   if (box){
     let [cx, cy, w, h] = box;
     if (flip) cx = 1 - cx;
-    nb = clampBox([0.5 + (cx-0.5)*scale, 0.5 + (cy-0.5)*scale, w*scale, h*scale]);
+    nb = clampBox([0.5 + (cx-0.5)*scale, 0.5 + (cy-0.5)*scale, w*scale, h*scale, boxAngle(box)]);
   }
   return {cv: c, box: nb};
 }
@@ -940,7 +983,7 @@ async function train(){
   usable.forEach((c,i)=>{
     pick(c).forEach(e=>{
       xs.push(e.feat); ys.push(i);
-      if (task==='detect'){ bx.push(e.feat); by.push(e.box); }
+      if (task==='detect'){ bx.push(e.feat); by.push(aabbBox(e.box, e.w, e.h)); }
     });
   });
   const X = tf.tensor2d(xs);
@@ -1121,6 +1164,7 @@ const DS_README = `# Train this dataset offline with YOLO (production-grade)
 This zip was exported from the TESR AI Vision Web Trainer.
 It already has the correct YOLO layout for its task:
   detection      -> images/ + labels/ + data.yaml  (your hand-drawn boxes)
+  rotated boxes  -> same layout, OBB labels (8 corner coords) -> yolov8n-obb
   classification -> train/<class>/ + val/<class>/  (one folder per class)
 
 1. Get the offline trainer (one time):
@@ -1150,6 +1194,9 @@ async function exportDataset(){
     return;
   }
   m.textContent = 'Building dataset zip...';
+  // any rotated box -> the WHOLE detection export becomes YOLO OBB (formats can't mix)
+  const hasOBB = wantBox && classes.some(c =>
+    c.examples.some(e => pickOk(e) && Math.abs(boxAngle(e.box)) > 0.5));
   try {
     const zip = new JSZip();
     let n = 0;
@@ -1165,10 +1212,16 @@ async function exportDataset(){
         if (wantBox){
           zip.file('dataset/images/' + split + '/' + fname + '.jpg',
                    e.src.split(',')[1], {base64: true});
-          const [cx, cy, w, h] = e.box;
-          zip.file('dataset/labels/' + split + '/' + fname + '.txt',
-                   ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
-                      + w.toFixed(6) + ' ' + h.toFixed(6) + '\n');
+          let line;
+          if (hasOBB){
+            line = ci + ' ' + obbCorners(e.box, e.w || 640, e.h || 480)
+              .map(c => c[0].toFixed(6) + ' ' + c[1].toFixed(6)).join(' ') + '\n';
+          } else {
+            const [cx, cy, w, h] = e.box;
+            line = ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
+                      + w.toFixed(6) + ' ' + h.toFixed(6) + '\n';
+          }
+          zip.file('dataset/labels/' + split + '/' + fname + '.txt', line);
         } else {
           zip.file('dataset/' + split + '/' + c.name + '/' + fname + '.jpg',
                    e.src.split(',')[1], {base64: true});
@@ -1186,8 +1239,9 @@ async function exportDataset(){
     a.href = URL.createObjectURL(blob);
     a.download = 'tesr-dataset-yolo.zip';
     a.click();
-    m.textContent = 'Downloaded ' + n + ' labeled photos as tesr-dataset-yolo.zip '
-      + '\u2014 open README_DATASET.md inside for the 3 offline steps.';
+    m.textContent = 'Downloaded ' + n + ' labeled photos as tesr-dataset-yolo.zip'
+      + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
+      + ' \u2014 open README_DATASET.md inside for the 3 offline steps.';
   } catch (e) {
     m.textContent = 'Export failed: ' + e.message;
   }

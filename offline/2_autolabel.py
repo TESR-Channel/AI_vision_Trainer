@@ -15,6 +15,12 @@ CLASSIFICATION - no boxes at all:
 
         python 2_autolabel.py --task classify
 
+ROTATED boxes (OBB) - boxes that follow tilted objects:
+    Same auto-labeling, but each label is the object's minimum ROTATED
+    rectangle (8 corner coords) -> trains yolov8n-obb.
+
+        python 2_autolabel.py --obb
+
 Then:  python 3_train.py   (it detects the task automatically)
 """
 import argparse
@@ -25,8 +31,8 @@ import cv2
 import numpy as np
 
 
-def find_box(bgr, margin=0.03):
-    """Return (cx, cy, w, h) normalized, or None if no clean object found."""
+def find_contour(bgr):
+    """Largest clean object contour on a plain background, or None."""
     H, W = bgr.shape[:2]
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (7, 7), 0)
@@ -45,11 +51,33 @@ def find_box(bgr, margin=0.03):
     area = cv2.contourArea(c)
     if area < 0.005 * W * H or area > 0.90 * W * H:
         return None
+    return c
+
+
+def find_box(bgr, margin=0.03):
+    """Return (cx, cy, w, h) normalized, or None if no clean object found."""
+    H, W = bgr.shape[:2]
+    c = find_contour(bgr)
+    if c is None:
+        return None
     x, y, w, h = cv2.boundingRect(c)
     mx, my = int(margin * W), int(margin * H)
     x1, y1 = max(0, x - mx), max(0, y - my)
     x2, y2 = min(W, x + w + mx), min(H, y + h + my)
     return ((x1 + x2) / 2 / W, (y1 + y2) / 2 / H, (x2 - x1) / W, (y2 - y1) / H)
+
+
+def find_obb(bgr, margin=0.03):
+    """Return 4 rotated-rect corners [(x, y) normalized] following the object's
+    tilt (cv2.minAreaRect), or None if no clean object found."""
+    H, W = bgr.shape[:2]
+    c = find_contour(bgr)
+    if c is None:
+        return None
+    (cx, cy), (w, h), ang = cv2.minAreaRect(c)
+    grow = 2 * margin * min(W, H)
+    pts = cv2.boxPoints(((cx, cy), (w + grow, h + grow), ang))
+    return [(min(max(x / W, 0.0), 1.0), min(max(y / H, 0.0), 1.0)) for x, y in pts]
 
 
 def main():
@@ -60,6 +88,8 @@ def main():
     ap.add_argument("--review", action="store_true", help="preview every box")
     ap.add_argument("--task", choices=["detect", "classify"], default="detect",
                     help="detect = auto-label boxes (default); classify = folders only")
+    ap.add_argument("--obb", action="store_true",
+                    help="rotated boxes (minAreaRect) -> YOLO OBB labels")
     args = ap.parse_args()
 
     raw = Path(args.raw)
@@ -100,7 +130,7 @@ def main():
             bgr = cv2.imread(str(p))
             if bgr is None:
                 continue
-            box = find_box(bgr)
+            box = find_obb(bgr) if args.obb else find_box(bgr)
             if box is None:
                 review_dir.mkdir(exist_ok=True)
                 shutil.copy2(p, review_dir / p.name)
@@ -108,10 +138,14 @@ def main():
                 continue
             if args.review:
                 H, W = bgr.shape[:2]
-                cx, cy, w, h = box
                 view = bgr.copy()
-                cv2.rectangle(view, (int((cx - w / 2) * W), int((cy - h / 2) * H)),
-                              (int((cx + w / 2) * W), int((cy + h / 2) * H)), (76, 168, 201), 2)
+                if args.obb:
+                    pts = np.array([[int(x * W), int(y * H)] for x, y in box])
+                    cv2.polylines(view, [pts], True, (76, 168, 201), 2)
+                else:
+                    cx, cy, w, h = box
+                    cv2.rectangle(view, (int((cx - w / 2) * W), int((cy - h / 2) * H)),
+                                  (int((cx + w / 2) * W), int((cy + h / 2) * H)), (76, 168, 201), 2)
                 cv2.imshow("Review (ENTER=ok, s=skip, q=quit)", view)
                 k = cv2.waitKey(0) & 0xFF
                 if k == ord("q"):
@@ -126,8 +160,11 @@ def main():
             split = "val" if (every and kept % every == 0) else "train"
             kept += 1
             shutil.copy2(p, out / "images" / split / p.name)
-            (out / "labels" / split / (p.stem + ".txt")).write_text(
-                "%d %.6f %.6f %.6f %.6f\n" % (ci, *box), encoding="utf-8")
+            if args.obb:
+                line = "%d " % ci + " ".join("%.6f %.6f" % (x, y) for x, y in box) + "\n"
+            else:
+                line = "%d %.6f %.6f %.6f %.6f\n" % (ci, *box)
+            (out / "labels" / split / (p.stem + ".txt")).write_text(line, encoding="utf-8")
             done += 1
     if args.review:
         cv2.destroyAllWindows()

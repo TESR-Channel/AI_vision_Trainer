@@ -1,22 +1,28 @@
 """TESR Offline Trainer - Step 4: Run your trained YOLO model.
 
-Works with both tasks - it reads the task from best.pt automatically:
+Works with every task - it reads the task from best.pt automatically:
   detection      -> boxes + crosshair + CENTER (x, y)px, multi-object
+  OBB            -> ROTATED boxes that follow tilted objects + center
   classification -> class name + confidence for the whole frame
+
+A status line on screen always tells you what is happening - including the
+best candidate BELOW your confidence threshold, so "no answer" is never silent.
 
 Usage:
     python 4_run.py                        # live webcam, press q to quit
     python 4_run.py --source photo.jpg     # single image
-    python 4_run.py --conf 0.6             # stricter confidence
+    python 4_run.py --conf 0.25            # lower threshold (small datasets)
 
-Detection prints "name center=(x, y)px conf=.." - the numbers a robot arm,
+Detection prints "name center=(x, y)px conf=..." - the numbers a robot arm,
 conveyor PLC, or MQTT pipeline needs.
 """
 import argparse
 
 import cv2
+import numpy as np
 
 COLOR = (76, 168, 201)[::-1]
+GRAY = (130, 130, 130)
 
 
 def open_camera(idx):
@@ -30,35 +36,68 @@ def open_camera(idx):
     return None
 
 
+def _label(frame, text, x, y, color):
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+
 def annotate(frame, result, task, conf_min):
-    """Draw predictions on the frame; return the lines to print."""
+    """Draw predictions + a status line; return the console lines to print."""
     out = []
     if task == "classify":
         p = result.probs
         name = result.names[int(p.top1)]
         conf = float(p.top1conf)
-        if conf < conf_min:
-            name = "none"
-        cv2.putText(frame, "%s %.0f%%" % (name, conf * 100), (10, 34),
+        shown = name if conf >= conf_min else "none"
+        cv2.putText(frame, "%s %.0f%%" % (shown, conf * 100), (10, 34),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0,
-                    (120, 120, 120) if name == "none" else COLOR, 2)
-        out.append("%s conf=%.2f" % (name, conf))
+                    GRAY if shown == "none" else COLOR, 2)
+        out.append("%s conf=%.2f (top: %s)" % (shown, conf, name))
         return out
-    for b in result.boxes:
-        conf = float(b.conf[0])
-        if conf < conf_min:
-            continue
-        x1, y1, x2, y2 = (int(v) for v in b.xyxy[0])
-        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        name = result.names[int(b.cls[0])]
-        cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR, 2)
-        cv2.drawMarker(frame, (cx, cy), COLOR, cv2.MARKER_CROSS, 22, 2)
-        cv2.putText(frame, "%s %.0f%%" % (name, conf * 100),
-                    (max(2, x1 + 4), max(20, y1 - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR, 2)
-        cv2.putText(frame, "(%d, %d)px" % (cx, cy), (max(2, x1 + 4), y2 + 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR, 2)
-        out.append("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
+
+    best_name, best_conf = None, 0.0
+
+    if task == "obb" and result.obb is not None:
+        ob = result.obb
+        for i in range(len(ob)):
+            conf = float(ob.conf[i])
+            name = result.names[int(ob.cls[i])]
+            if conf > best_conf:
+                best_name, best_conf = name, conf
+            if conf < conf_min:
+                continue
+            pts = np.asarray(ob.xyxyxyxy[i].cpu()).astype(int).reshape(-1, 2)
+            cx, cy = int(pts[:, 0].mean()), int(pts[:, 1].mean())
+            cv2.polylines(frame, [pts], True, COLOR, 2)
+            cv2.drawMarker(frame, (cx, cy), COLOR, cv2.MARKER_CROSS, 22, 2)
+            _label(frame, "%s %.0f%%" % (name, conf * 100),
+                   max(2, int(pts[:, 0].min()) + 4), max(20, int(pts[:, 1].min()) - 8), COLOR)
+            out.append("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
+    elif task == "detect":
+        for b in result.boxes:
+            conf = float(b.conf[0])
+            name = result.names[int(b.cls[0])]
+            if conf > best_conf:
+                best_name, best_conf = name, conf
+            if conf < conf_min:
+                continue
+            x1, y1, x2, y2 = (int(v) for v in b.xyxy[0])
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR, 2)
+            cv2.drawMarker(frame, (cx, cy), COLOR, cv2.MARKER_CROSS, 22, 2)
+            _label(frame, "%s %.0f%%" % (name, conf * 100),
+                   max(2, x1 + 4), max(20, y1 - 8), COLOR)
+            _label(frame, "(%d, %d)px" % (cx, cy), max(2, x1 + 4), y2 + 22, COLOR)
+            out.append("%s center=(%d, %d)px conf=%.2f" % (name, cx, cy, conf))
+
+    # Always-on status line - never leaves you guessing
+    if out:
+        status = "%d object(s) >= %.2f" % (len(out), conf_min)
+    elif best_name:
+        status = "no object >= %.2f  (best: %s %.0f%% - try --conf %.2f)" % (
+            conf_min, best_name, best_conf * 100, max(0.1, round(best_conf - 0.05, 2)))
+    else:
+        status = "no object found at all - check lighting / add more training photos"
+    _label(frame, status, 10, 24, COLOR if out else GRAY)
     return out
 
 
@@ -72,18 +111,25 @@ def main():
     from ultralytics import YOLO
 
     model = YOLO(args.weights)
-    task = "classify" if getattr(model, "task", "") == "classify" else "detect"
+    task = getattr(model, "task", "detect")
+    if task not in ("classify", "obb"):
+        task = "detect"
     print("Task: %s  |  classes: %s" % (task, ", ".join(model.names.values())))
+
+    # run inference with a LOW floor so the status line can show near-misses;
+    # args.conf only decides what is drawn/printed as a real detection
+    floor = min(0.1, args.conf)
 
     if not args.source.isdigit():
         frame = cv2.imread(args.source)
         if frame is None:
             raise SystemExit("Could not read image: " + args.source)
-        lines = annotate(frame, model(frame, verbose=False)[0], task, args.conf)
+        lines = annotate(frame, model(frame, conf=floor, verbose=False)[0], task, args.conf)
         for ln in lines:
             print(ln)
         if not lines:
-            print("none - no trained object found")
+            print("none - nothing above --conf %.2f (see the status line on the image)"
+                  % args.conf)
         cv2.imshow("TESR YOLO (press any key)", frame)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
@@ -91,14 +137,16 @@ def main():
 
     cap = open_camera(int(args.source))
     if cap is None:
-        raise SystemExit("Could not open camera %s - try --source 1, and close "
-                         "any app using the camera" % args.source)
+        raise SystemExit("Could not open camera %s - try --source 0 or --source 1 "
+                         "(index 2+ is often an IR/virtual camera), and close any "
+                         "app using the camera" % args.source)
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            for ln in annotate(frame, model(frame, verbose=False)[0], task, args.conf):
+            for ln in annotate(frame, model(frame, conf=floor, verbose=False)[0],
+                               task, args.conf):
                 print(ln)
             cv2.imshow("TESR YOLO - press q to quit", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
