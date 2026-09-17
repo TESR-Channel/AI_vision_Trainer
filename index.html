@@ -241,9 +241,10 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           </select>
           <span class="tag" id="fpsTag"></span>
         </div>
-        <div class="hint" id="modeHint">When the AI is not confident enough it answers
-        <b>"none"</b> instead of guessing (threshold selectable above). Tip: adding a
-        "background" class with photos of your empty scene makes "none" even more reliable.
+        <div class="hint" id="modeHint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the frame
+        does not <i>look like</i> any of your training photos (feature similarity, learned
+        automatically at training time). Tip: adding a "background" class of your empty
+        scene makes it even more reliable.
         </div>
         <div class="hint">Detect mode: a general-purpose detector (COCO-SSD, running
         in your browser) finds objects and draws boxes; your freshly trained classifier names
@@ -584,6 +585,7 @@ async function train(){
         await tf.nextFrame();   // keep the page responsive
       }}
     });
+    protos = computeProtos(usable);   // remember what each class looks like -> powers "none"
     const secs = ((performance.now()-t0)/1000).toFixed(1);
     msg.textContent = `✅ Trained in ${secs}s on this computer — test it live below.`;
     document.getElementById('testCard').style.display = '';
@@ -609,18 +611,59 @@ let detector = null, cropCv = document.createElement('canvas');
 cropCv.width = 224; cropCv.height = 224;
 let lastDetsW = [], lastLabel = null;
 
+/* Prototypes: per-class feature "signatures" captured at training time.
+   A frame that looks like NONE of your classes -> "none", even when the
+   classifier itself is overconfident (softmax always picks something). */
+let protos = null;
+function computeProtos(usable){
+  const names = usable.map(c => c.name);
+  const normed = usable.map(c => c.examples.map(e => {
+    const n = Math.sqrt(e.feat.reduce((s,v)=>s+v*v,0)) + 1e-9;
+    return e.feat.map(v => v/n);
+  }));
+  const C = normed.map(fs => {
+    const m = new Array(fs[0].length).fill(0);
+    fs.forEach(f => f.forEach((v,i) => m[i] += v));
+    const n = Math.sqrt(m.reduce((s,v)=>s+v*v,0)) + 1e-9;
+    return m.map(v => v/n);
+  });
+  const sims = [];
+  normed.forEach((fs,k) => fs.forEach(f => {
+    let s = 0; for (let i = 0; i < f.length; i++) s += f[i]*C[k][i];
+    sims.push(s);
+  }));
+  sims.sort((a,b)=>a-b);
+  const p05 = sims[Math.floor(sims.length*0.05)] ?? sims[0];
+  return {names, C, thr: Math.min(0.9, Math.max(0.35, p05*0.97))};
+}
+
+/* Shared predictor for both modes: confidence gate + similarity gate */
+async function predictEl(el){
+  const ft = tf.tidy(() => embed(el));
+  const pt = tf.tidy(() => head.predict(ft.expandDims(0)).squeeze());
+  const vals = await pt.array(); pt.dispose();
+  const f = await ft.array(); ft.dispose();
+  let best = 0;
+  for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
+  let sim = null;
+  if (protos) {
+    const n = Math.sqrt(f.reduce((s,v)=>s+v*v,0)) + 1e-9;
+    sim = -1;
+    for (const c of protos.C) {
+      let s = 0; for (let i = 0; i < f.length; i++) s += f[i]*c[i];
+      s /= n; if (s > sim) sim = s;
+    }
+  }
+  const th = +document.getElementById('minConf').value;
+  const none = vals[best] < th || (sim !== null && sim < protos.thr);
+  return {name: none ? 'none' : head.classNames[best], conf: vals[best], vals};
+}
+
 async function classifyCrop(video, box){
   // box = [x, y, w, h] in the video's intrinsic pixels
   const [x, y, w, h] = box;
   cropCv.getContext('2d').drawImage(video, x, y, w, h, 0, 0, 224, 224);
-  const p = tf.tidy(() => head.predict(embed(cropCv).expandDims(0)).squeeze());
-  const vals = await p.array(); p.dispose();
-  let best = 0;
-  for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
-  const th = +document.getElementById('minConf').value;
-  // softmax always picks SOME class — below the threshold we answer "none"
-  if (vals[best] < th) return {name: 'none', conf: vals[best]};
-  return {name: head.classNames[best], conf: vals[best]};
+  return await predictEl(cropCv);
 }
 
 /* Smoothing: blend each new box toward the nearest previous box of the same
@@ -711,14 +754,11 @@ async function inferLoopW(){
           + 'Boxes come from a general detector: objects it has never seen may get no box at all '
           + '(that is the limit of in-browser detection) — Classify mode still works for them.</div>';
     } else {
-      const p = tf.tidy(() => head.predict(embed(video).expandDims(0)).squeeze());
-      const vals = await p.array(); p.dispose();
-      let best = 0;
-      for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
-      const th = +document.getElementById('minConf').value;
-      lastLabel = vals[best] < th
-        ? `none (${(100*vals[best]).toFixed(0)}%)`
-        : `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
+      const r = await predictEl(video);
+      const vals = r.vals;
+      lastLabel = r.name === 'none'
+        ? `none (${(100*r.conf).toFixed(0)}%)`
+        : `${r.name} ${(100*r.conf).toFixed(0)}%`;
       document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
@@ -731,84 +771,149 @@ async function inferLoopW(){
 }
 
 /* ============ export ============ */
-const PY_REQS = `# TESR Web Trainer - Python inference requirements (Python 3.10 - 3.12)
-tensorflow>=2.15
+const PY_BAT = `@echo off
+REM ==== TESR Web Model - one-click installer (Windows) ====
+setlocal
+set "PY="
+py -3.12 -c "print()" >nul 2>nul && set "PY=py -3.12"
+if not defined PY py -3.11 -c "print()" >nul 2>nul && set "PY=py -3.11"
+if not defined PY py -3.10 -c "print()" >nul 2>nul && set "PY=py -3.10"
+if not defined PY set "PY=python"
+echo Using: %PY%
+%PY% -m venv venv || goto err
+call venv\\Scripts\\activate.bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt || goto err
+echo.
+echo ============================================
+echo  Done! To run your model:
+echo    venv\\Scripts\\activate
+echo    python predict.py --source 0
+echo    python predict.py --source 0 --mode detect
+echo ============================================
+pause
+exit /b 0
+:err
+echo.
+echo Install failed. Most common cause: Python version.
+echo TensorFlow needs Python 3.10 - 3.12 (see README_PYTHON.md).
+pause
+exit /b 1
+`;
+const PY_SH = `#!/usr/bin/env bash
+# ==== TESR Web Model - one-command installer (Linux / macOS) ====
+set -e
+for v in 3.12 3.11 3.10; do
+  if command -v python$v >/dev/null 2>&1; then PY=python$v; break; fi
+done
+if [ -z "$PY" ]; then
+  PY=python3
+  V=$($PY -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  case "$V" in
+    3.10|3.11|3.12) ;;
+    *) echo "Found Python $V but TensorFlow needs 3.10-3.12."
+       echo "On Ubuntu:  sudo apt install python3.12 python3.12-venv  then re-run."
+       exit 1 ;;
+  esac
+fi
+echo "Using: $PY"
+$PY -m venv venv
+. venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+echo
+echo "============================================"
+echo " Done! To run your model:"
+echo "   source venv/bin/activate"
+echo "   python predict.py --source 0"
+echo "   python predict.py --source 0 --mode detect"
+echo "============================================"
+`;
+const PY_REQS = `# TESR Web Trainer - Python inference (Python 3.10 - 3.12)
+# tensorflow-cpu = same package as tensorflow, half the download on Linux
+tensorflow-cpu>=2.15
 numpy
 opencv-python
 `;
 const PY_README = `# Use your TESR web-trained model in Python
 
-Your model has two parts, exactly like in the browser:
-1. **MobileNet backbone** (built into TensorFlow, weights auto-download on first run)
-2. **Your trained head** (\`model.json\` + \`weights.bin\`) - read directly with NumPy
+## Fastest way (recommended)
 
-## Step 1 - Check your Python version (important!)
+1. Check Python: TensorFlow needs **3.10 - 3.12** (\`python --version\`).
+   Have 3.13/3.14 (e.g. new Ubuntu)? Install 3.12 first:
+   \`sudo apt install python3.12 python3.12-venv\` (Windows: python.org)
+2. Run the installer in this folder — it creates a venv and installs everything:
+   - **Windows:** double-click \`install_windows.bat\`
+   - **Linux/macOS:** \`bash install_linux.sh\`
+3. Run your model:
 
-TensorFlow supports **Python 3.10 - 3.12**. Check yours:
+       # Windows: venv\\Scripts\\activate     Linux: source venv/bin/activate
+       python predict.py --source 0                # classify, live webcam
+       python predict.py --source 0 --mode detect  # boxes + your classes
+       python predict.py --source my_photo.jpg     # single image
+       # press q to quit the webcam window
 
-    python --version
+First run downloads the vision backbone (~10 MB); first \`--mode detect\` run
+also downloads a general box detector (~23 MB). Both are cached after that.
 
-If you have Python 3.13 / 3.14 (e.g. new Ubuntu releases), create a venv
-with Python 3.12 instead:
+## How "none" works (why it will not guess blindly)
 
-    # Ubuntu / Debian
-    sudo apt install python3.12 python3.12-venv
-    python3.12 -m venv venv
-    source venv/bin/activate
+Two gates decide when the answer is **none**:
 
-    # Windows (install 3.12 from python.org first)
-    py -3.12 -m venv venv
-    venv\\Scripts\\activate
+1. **Confidence** — below \`--min-conf\` (default 0.65) → none
+2. **Similarity** — \`prototypes.json\` (exported with your model) remembers what
+   your training photos look like. A frame that looks like *none* of your
+   classes becomes **none even at 100% classifier confidence**. This is what
+   stops an empty desk from being called your first class.
 
-## Step 2 - Install (once)
+Best results: also train a real \`background\` class of your empty scene.
 
-    pip install -r requirements.txt
-
-Only 3 packages: tensorflow, numpy, opencv-python (~500 MB total).
-
-## Step 3 - Run
-
-    python predict.py --source my_photo.jpg     # single image
-    python predict.py --source 0                # live webcam, press q to quit
-
-You should see the class name + confidence. When nothing it knows is in
-front of the camera, it answers **"none"** instead of guessing.
-
-## Useful options
+## Options
 
 | Option | What it does |
 |---|---|
-| \`--min-conf 0.65\` | Below this confidence the answer is "none" (raise it to be stricter) |
-| \`--norm zero_one\` | Try this if predictions look wrong (pixel-scaling convention) |
-| \`--source 1\` | Try other camera indices if the camera will not open |
+| \`--mode detect\` | Boxes from a general detector + your class on each box |
+| \`--sens 0.35\` | Detect mode box sensitivity (lower = more boxes) |
+| \`--min-conf 0.65\` | Confidence gate for "none" |
+| \`--proto-th 0.7\` | Override the similarity gate threshold |
+| \`--no-proto\` | Disable the similarity gate |
+| \`--norm zero_one\` | Try if predictions look wrong (pixel-scaling convention) |
+| \`--source 1\` | Other camera index if the camera will not open |
 
 ## Troubleshooting
 
-- **"TensorFlow is not installed for this Python"** - follow Step 1 (venv with 3.12)
-- **Camera will not open** - try \`--source 0\` / \`--source 1\`; close apps using the
-  camera (browser Live Test tab, Zoom, Teams). Index 2+ is often an IR camera.
-- **Everything answers "none"** - lower \`--min-conf 0.5\`, or collect more varied
-  training photos in the web trainer
-- **Slow first prediction** - normal, TensorFlow warms up; later frames are fast
+- **"TensorFlow is not installed for this Python"** → step 1 (needs 3.10-3.12)
+- **Camera will not open** → try \`--source 0\` / \`--source 1\`; close apps using
+  the camera (browser Live Test tab, Zoom, Teams). Index 2+ is often an IR camera.
+- **Everything is "none"** → lower gates: \`--min-conf 0.5 --proto-th 0.6\`,
+  and collect more varied training photos
+- **Real object shows "none" in detect mode** → the general detector may not
+  box unusual custom objects (its honest limit); lower \`--sens 0.2\`, or use
+  classify mode / the TESR Desktop Trainer for true custom detection
+- **Slow install** → it is TensorFlow (~300 MB), one time only; the installer
+  scripts already pick the smaller \`tensorflow-cpu\` build
 `;
 const PY_CODE = `"""Run a TESR AI Vision Web Trainer model in Python.
 
-The browser trained a small head on top of MobileNet features. This script
-rebuilds the same two-stage pipeline in Python:
-  image -> MobileNetV2 (0.5, 224) feature vector -> your trained head -> class
+Two modes, same as the web page:
+  classify (default)  whole-frame classification
+  detect              boxes from a general detector + YOUR classes on each box
 
-The head (model.json + weights.bin) is read directly with NumPy, and the
-MobileNet backbone comes from TensorFlow itself (keras.applications).
+The "none" answer uses TWO gates:
+  1. confidence gate  (--min-conf, default 0.65)
+  2. similarity gate  prototypes.json (exported with your model) remembers what
+     your training photos LOOK like; frames that look like none of your classes
+     become "none" even when the classifier is overconfident.
 
-Install:  pip install -r requirements.txt   (Python 3.10 - 3.12, see README)
-Run:      python predict.py --source photo.jpg
-          python predict.py --source 0            # webcam, press q to quit
-Options:  --min-conf 0.65   confidence below this prints "none"
-          --norm zero_one   try this if predictions look wrong
+Install:  run install_windows.bat / install_linux.sh  (or see README_PYTHON.md)
+Run:      python predict.py --source 0
+          python predict.py --source 0 --mode detect
+          python predict.py --source photo.jpg
 """
 import argparse
 import json
 import sys
+import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -827,6 +932,13 @@ Fix: create a virtual environment with Python 3.12 and install there.
       py -3.12 -m venv venv && venv\\\\Scripts\\\\activate
       pip install -r requirements.txt
 """
+
+# General-purpose box detector for --mode detect (downloaded once, ~23 MB)
+SSD_DIR = Path("models")
+SSD_PROTO = ("https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/"
+             "master/deploy.prototxt")
+SSD_MODEL = ("https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/"
+             "master/mobilenet_iter_73000.caffemodel")
 
 
 def load_head(model_json_path):
@@ -859,6 +971,17 @@ def load_head(model_json_path):
     return head
 
 
+def load_prototypes(path):
+    """prototypes.json = per-class feature centroids captured at training time."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    d = json.loads(p.read_text(encoding="utf-8"))
+    C = np.asarray(d["centroids"], dtype=np.float32)
+    C /= np.linalg.norm(C, axis=1, keepdims=True) + 1e-9
+    return {"names": d["names"], "C": C, "thr": float(d["threshold"])}
+
+
 def load_backbone():
     try:
         import tensorflow as tf
@@ -873,26 +996,66 @@ def load_backbone():
         include_top=False, pooling="avg", weights="imagenet")
 
 
-def preprocess(rgb, norm):
+def features(backbone, rgb, norm):
     import cv2
 
     img = cv2.resize(rgb, (224, 224)).astype("float32")
-    if norm == "pm1":
-        img = img / 127.5 - 1.0
-    else:
-        img = img / 255.0
-    return img[None, ...]
+    img = img / 127.5 - 1.0 if norm == "pm1" else img / 255.0
+    return np.asarray(backbone(img[None, ...], training=False))[0]
 
 
-def predict(backbone, head, rgb, norm, names, min_conf):
-    x = preprocess(rgb, norm)
-    feat = np.asarray(backbone(x, training=False))
-    probs = head(feat)[0]
+def decide(feat, head, names, min_conf, proto):
+    """Class name + confidence, or 'none' when either gate rejects the frame."""
+    probs = head(feat[None])[0]
     i = int(np.argmax(probs))
     conf = float(probs[i])
-    # Softmax always picks SOME class — below the threshold we answer "none"
-    name = names[i] if conf >= min_conf else "none"
-    return name, conf
+    sim = None
+    if proto is not None:
+        f = feat / (np.linalg.norm(feat) + 1e-9)
+        sim = float(np.max(proto["C"] @ f))
+    name = names[i]
+    if conf < min_conf or (sim is not None and sim < proto["thr"]):
+        name = "none"
+    return name, conf, sim
+
+
+# ---------------- detect mode ----------------
+def _download(url, dst):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        return
+    print(f"Downloading {dst.name} ({url.split('/')[-1]}) — one time only...")
+    urllib.request.urlretrieve(url, dst)
+    print(f"  saved to {dst} ({dst.stat().st_size/1e6:.1f} MB)")
+
+
+def load_detector():
+    import cv2
+
+    proto, model = SSD_DIR / "deploy.prototxt", SSD_DIR / "mobilenet_ssd.caffemodel"
+    _download(SSD_PROTO, proto)
+    _download(SSD_MODEL, model)
+    return cv2.dnn.readNetFromCaffe(str(proto), str(model))
+
+
+def detect_boxes(net, bgr, sens):
+    """Generic object proposals -> [(x1,y1,x2,y2), ...] in pixels."""
+    import cv2
+
+    h, w = bgr.shape[:2]
+    blob = cv2.dnn.blobFromImage(cv2.resize(bgr, (300, 300)),
+                                 0.007843, (300, 300), 127.5)
+    net.setInput(blob)
+    out = net.forward()          # (1, 1, N, 7): [_, class, conf, x1, y1, x2, y2]
+    boxes = []
+    for det in out[0, 0]:
+        if float(det[2]) < sens:
+            continue
+        x1 = max(0, int(det[3] * w)); y1 = max(0, int(det[4] * h))
+        x2 = min(w, int(det[5] * w)); y2 = min(h, int(det[6] * h))
+        if x2 - x1 > 8 and y2 - y1 > 8:
+            boxes.append((x1, y1, x2, y2))
+    return boxes[:6]             # cap per-frame work, same as the web page
 
 
 def open_camera(idx):
@@ -909,6 +1072,15 @@ def open_camera(idx):
     return None
 
 
+def annotate(bgr, x1, y1, x2, y2, label, is_none):
+    import cv2
+
+    color = (140, 140, 140) if is_none else (76, 168, 201)[::-1]
+    cv2.rectangle(bgr, (x1, y1), (x2, y2), color, 2)
+    cv2.putText(bgr, label, (x1 + 4, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+
 def main():
     if sys.version_info >= (3, 13):
         print("WARNING: Python {}.{} detected — TensorFlow may not install here.".format(
@@ -918,26 +1090,62 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="model.json")
     ap.add_argument("--classes", default="classes.txt")
+    ap.add_argument("--prototypes", default="prototypes.json")
     ap.add_argument("--source", default="0", help="image path, or 0 for webcam")
+    ap.add_argument("--mode", choices=["classify", "detect"], default="classify",
+                    help="classify = whole frame, detect = boxes + your classes")
+    ap.add_argument("--sens", type=float, default=0.35,
+                    help="detect mode: box sensitivity (lower = more boxes)")
     ap.add_argument("--norm", choices=["zero_one", "pm1"], default="pm1")
     ap.add_argument("--min-conf", type=float, default=0.65,
-                    help='below this confidence the answer is "none" (default 0.65)')
+                    help='below this confidence the answer is "none"')
+    ap.add_argument("--proto-th", type=float, default=None,
+                    help="override the similarity threshold from prototypes.json")
+    ap.add_argument("--no-proto", action="store_true",
+                    help="disable the similarity gate (confidence gate only)")
     args = ap.parse_args()
 
     import cv2
 
     names = Path(args.classes).read_text(encoding="utf-8").split()
     head = load_head(args.model)
+    proto = None if args.no_proto else load_prototypes(args.prototypes)
+    if proto is not None:
+        if args.proto_th is not None:
+            proto["thr"] = args.proto_th
+        print(f'"none" gates: confidence < {args.min_conf}  OR  '
+              f'similarity < {proto["thr"]:.2f}  (prototypes.json loaded)')
+    else:
+        print(f'"none" gate: confidence < {args.min_conf}  '
+              '(no prototypes.json — re-export from the web trainer to get it)')
     backbone = load_backbone()
+    det = load_detector() if args.mode == "detect" else None
+
+    def run_frame(bgr):
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        if args.mode == "classify":
+            name, conf, _ = decide(features(backbone, rgb, args.norm),
+                                   head, names, args.min_conf, proto)
+            annotate(bgr, 2, 2, bgr.shape[1] - 2, bgr.shape[0] - 2,
+                     f"{name} {conf*100:.0f}%", name == "none")
+            return [(name, conf)]
+        results = []
+        for (x1, y1, x2, y2) in detect_boxes(det, bgr, args.sens):
+            crop = rgb[y1:y2, x1:x2]
+            name, conf, _ = decide(features(backbone, crop, args.norm),
+                                   head, names, args.min_conf, proto)
+            annotate(bgr, x1, y1, x2, y2, f"{name} {conf*100:.0f}%", name == "none")
+            results.append((name, conf))
+        return results
 
     if not args.source.isdigit():
         bgr = cv2.imread(args.source)
         if bgr is None:
             raise SystemExit("Could not read image: " + args.source)
-        name, conf = predict(backbone, head,
-                             cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),
-                             args.norm, names, args.min_conf)
-        print("Prediction: {}  ({:.1f}%)".format(name, conf * 100))
+        for name, conf in run_frame(bgr):
+            print(f"Prediction: {name}  ({conf*100:.1f}%)")
+        cv2.imshow("TESR Web Model - Python (press any key)", bgr)
+        cv2.waitKey(0); cv2.destroyAllWindows()
         return
 
     cap = open_camera(int(args.source))
@@ -951,12 +1159,7 @@ def main():
             ok, bgr = cap.read()
             if not ok:
                 break
-            name, conf = predict(backbone, head,
-                                 cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),
-                                 args.norm, names, args.min_conf)
-            color = (120, 120, 120) if name == "none" else (60, 200, 255)
-            cv2.putText(bgr, "{} {:.0f}%".format(name, conf * 100), (10, 34),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+            run_frame(bgr)
             cv2.imshow("TESR Web Model - Python", bgr)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -991,9 +1194,16 @@ async function exportModel(){
     zip.file('model.json', modelJson);
     zip.file('weights.bin', artifacts.weightData);
     zip.file('classes.txt', head.classNames.join('\n'));
+    if (protos) zip.file('prototypes.json', JSON.stringify({
+      names: protos.names,
+      centroids: protos.C.map(c => c.map(v => +v.toFixed(5))),
+      threshold: +protos.thr.toFixed(3),
+    }));
     zip.file('predict.py', PY_CODE);
     zip.file('requirements.txt', PY_REQS);
     zip.file('README_PYTHON.md', PY_README);
+    zip.file('install_windows.bat', PY_BAT);
+    zip.file('install_linux.sh', PY_SH);
     const blob = await zip.generateAsync({type: 'blob'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

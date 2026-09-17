@@ -47,11 +47,18 @@ Close the tab and everything is gone, except the model you chose to download.
 **Tips for good results:** vary the angle, distance, background and lighting while
 capturing. Add a "background / none" class so the AI knows what *nothing* looks like.
 
-## 🎯 The "none" answer
+## 🎯 The "none" answer (two gates)
 
-A classifier always picks *some* class — so when it is not confident enough, this
-app answers **"none"** instead of a wrong guess. Choose the threshold in the Test
-card (none if &lt;50% / 65% / 80%). For best results, also add a "background"
+A classifier always picks *some* class — and can even be overconfident on an
+empty scene. So **two gates** decide when the answer is "none":
+
+1. **Confidence** — below your chosen threshold (none if &lt;50% / 65% / 80%)
+2. **Similarity** — at training time the app remembers what your classes *look
+   like* (feature prototypes). A frame that resembles none of your training
+   photos becomes "none" even at 100% classifier confidence.
+
+The prototypes are saved into your export as `prototypes.json`, so the Python
+sample gets the same protection. For best results, also add a "background"
 class with photos of your empty scene.
 
 In **Detect** mode you can also adjust the box **sensitivity**: boxes come from a
@@ -87,8 +94,11 @@ The **Export** button gives you one `tesr-web-model.zip` containing everything:
 ```
 model.json + weights.bin   your trained model (TensorFlow.js format)
 classes.txt                class names, one per line
-predict.py                 ready-to-run sample: image file or live webcam
+prototypes.json            class "signatures" that power the "none" answer
+predict.py                 classify OR detect mode, image file or live webcam
 requirements.txt           the Python libraries it needs
+install_windows.bat        one-click installer (Windows)
+install_linux.sh           one-command installer (Linux/macOS)
 README_PYTHON.md           step-by-step instructions
 ```
 
@@ -98,19 +108,25 @@ as explained step by step in `README_PYTHON.md`):
 
 ```bash
 unzip tesr-web-model.zip -d my-model && cd my-model
-pip install -r requirements.txt        # just 3 packages: tensorflow, numpy, opencv-python
-python predict.py --source photo.jpg   # single image
-python predict.py --source 0           # live webcam — press q to quit
+bash install_linux.sh                       # Windows: double-click install_windows.bat
+source venv/bin/activate                    # Windows: venv\Scripts\activate
+python predict.py --source 0                # classify, live webcam — press q to quit
+python predict.py --source 0 --mode detect  # boxes + your classes, like the web page
 ```
+
+The installers pick a compatible Python, create a venv and install just 3
+packages (`tensorflow-cpu`, `numpy`, `opencv-python`) — the `-cpu` build halves
+the download on Linux. First `--mode detect` run fetches a general box detector
+(~23 MB, once).
 
 How it works: the browser trained a small classifier head on top of **MobileNet**
 features. `predict.py` rebuilds that same two-stage pipeline in Python — the
 MobileNet backbone downloads automatically on first run (~10 MB, cached), and
 your head weights are read directly from `weights.bin` with NumPy (no converter
 library needed, so installation stays light and conflict-free).
-Low-confidence answers become **"none"** (tune with `--min-conf`), and if
-predictions ever look wrong, run with `--norm zero_one` (switches between the
-two common MobileNet pixel-scaling conventions).
+Answers become **"none"** via the two gates above (`--min-conf`, `--proto-th`),
+and if predictions ever look wrong, run with `--norm zero_one` (switches between
+the two common MobileNet pixel-scaling conventions).
 
 ## 📚 Learn more with TESR Academy
 
