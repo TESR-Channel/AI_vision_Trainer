@@ -12,11 +12,13 @@ Usage:
     python 4_run.py                        # live webcam, press q to quit
     python 4_run.py --source photo.jpg     # single image
     python 4_run.py --conf 0.25            # lower threshold (small datasets)
+    python 4_run.py --headless             # no window (SSH / edge device) - Ctrl+C to stop
 
 Detection prints "name center=(x, y)px conf=..." - the numbers a robot arm,
 conveyor PLC, or MQTT pipeline needs.
 """
 import argparse
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -106,6 +108,9 @@ def main():
     ap.add_argument("--weights", default="best.pt")
     ap.add_argument("--source", default="0", help="image path, or camera index")
     ap.add_argument("--conf", type=float, default=0.5)
+    ap.add_argument("--headless", action="store_true",
+                    help="no display window - print results only (SSH / edge). "
+                         "Image source saves result_<name>.jpg instead")
     args = ap.parse_args()
 
     from ultralytics import YOLO
@@ -130,9 +135,14 @@ def main():
         if not lines:
             print("none - nothing above --conf %.2f (see the status line on the image)"
                   % args.conf)
-        cv2.imshow("TESR YOLO (press any key)", frame)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if args.headless:
+            out_path = "result_" + Path(args.source).name
+            cv2.imwrite(out_path, frame)
+            print("Annotated image saved: %s" % out_path)
+        else:
+            cv2.imshow("TESR YOLO (press any key)", frame)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
         return
 
     cap = open_camera(int(args.source))
@@ -140,6 +150,8 @@ def main():
         raise SystemExit("Could not open camera %s - try --source 0 or --source 1 "
                          "(index 2+ is often an IR/virtual camera), and close any "
                          "app using the camera" % args.source)
+    if args.headless:
+        print("Headless mode - Ctrl+C to stop")
     try:
         while True:
             ok, frame = cap.read()
@@ -148,9 +160,12 @@ def main():
             for ln in annotate(frame, model(frame, conf=floor, verbose=False)[0],
                                task, args.conf):
                 print(ln)
-            cv2.imshow("TESR YOLO - press q to quit", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            if not args.headless:
+                cv2.imshow("TESR YOLO - press q to quit", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    except KeyboardInterrupt:
+        print("\nStopped.")
     finally:
         cap.release()
         cv2.destroyAllWindows()

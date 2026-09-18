@@ -82,7 +82,9 @@ multi-object): press **⬇ Download Dataset (YOLO)** in step 3, unzip the
 `dataset/` folder next to the [**TESR Offline Trainer**](offline/) scripts, then
 `python 3_train.py` → `python 4_run.py`. Works for **both tasks** — the zip
 matches your chosen task (detection or classification) and `3_train.py` detects
-it automatically. For detection, your hand-drawn boxes are the labels, so no
+it automatically. The trained model then deploys straight to edge devices with
+`offline/5_export.py` — Raspberry Pi (NCNN) or Jetson (TensorRT) — and runs
+headless with `4_run.py --headless`. For detection, your hand-drawn boxes are the labels, so no
 plain background is required. (Skipping the web entirely? The offline
 trainer also has its own capture + **auto-label** scripts — see
 [offline/README.md](offline/README.md).)

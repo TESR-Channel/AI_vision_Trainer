@@ -1,4 +1,4 @@
-# TESR Offline Trainer — production-grade YOLO in 4 easy steps
+# TESR Offline Trainer — production-grade YOLO: train in 4 steps, deploy to Edge in 1 more
 
 เทรน AI Detection **ของจริง** บนเครื่องคุณเอง — YOLO เรียนรู้ตำแหน่งวัตถุโดยตรง
 กรอบแม่น หลายวัตถุพร้อมกัน Real-time และ **ไม่ต้องนั่งลากกรอบเอง**:
@@ -73,11 +73,49 @@ python 4_run.py                              # กล้องสด: กรอ�
 | รันแล้วไม่ขึ้นกรอบอะไรเลย | ดูบรรทัดสถานะบนจอ — มักเป็นเพราะ conf ต่ำ: ลอง `--conf 0.25` + เก็บรูปเพิ่ม (40–100/คลาส) ในแสงที่ใช้จริง |
 | ตรวจจับพลาดตอนใช้จริง | เก็บรูปเพิ่มในสภาพแสง/ฉากที่ใช้จริง แล้วเทรนซ้ำ |
 
-## Deploy ต่อ
+## Step 5 — Deploy ลง Edge Device (Raspberry Pi / Jetson Orin Nano)
 
-`best.pt` ใช้กับ ultralytics ได้ทุกที่ — Raspberry Pi, Jetson (export TensorRT:
-`yolo export model=best.pt format=engine`), หรือเชื่อม MQTT/Node-RED โดยส่งค่า
-center จาก `4_run.py`
+โมเดลที่เทรนได้ (`best.pt` — จากเว็บ dataset หรือถ่ายเองก็ตาม) เอาไปรันบน Edge ได้เลย
+สคริปต์ชุดเดียวกันทั้งหมด แค่ก๊อปโฟลเดอร์ `offline/` + `best.pt` ไปที่เครื่อง
+
+### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit)
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt          # ultralytics + opencv (CPU)
+
+python 4_run.py --conf 0.25              # รันจาก best.pt ได้ทันที (ช้าหน่อย)
+
+# เร่งความเร็ว: แปลงเป็น NCNN (เร็วสุดบน CPU ของ Pi)
+python 5_export.py --target pi           # ได้โฟลเดอร์ best_ncnn_model/
+python 4_run.py --weights best_ncnn_model --headless
+# ยังช้า? ลดขนาด input: python 5_export.py --target pi --imgsz 320
+```
+
+- กล้อง **USB webcam ใช้ได้ทันที** (cv2.VideoCapture) — กล้อง CSI ต้องผ่าน
+  picamera2/GStreamer ซึ่งยังไม่อยู่ในสคริปต์ชุดนี้
+- FPS จริงขึ้นกับรุ่น Pi / ขนาด input / จำนวนคลาส — **วัดบนเครื่องจริงก่อนตัดสินใจ**
+
+### NVIDIA Jetson Orin Nano (JetPack 6)
+
+PyTorch บน Jetson ต้องใช้ wheel ของ NVIDIA (pip ปกติจะได้ตัว CPU) — ติดตั้งตาม
+คู่มือ ultralytics สำหรับ Jetson หรือใช้ Docker image ของ ultralytics แล้ว:
+
+```bash
+# ⚠️ .engine ผูกกับ GPU ที่ build — ต้องรันคำสั่งนี้ "บน Jetson" เท่านั้น
+python 5_export.py --target jetson       # TensorRT FP16 → best.engine
+python 4_run.py --weights best.engine    # เร็วขึ้นมาก, คำสั่งรันเหมือนเดิม
+python 4_run.py --weights best.engine --headless   # ผ่าน SSH ไม่มีจอ
+```
+
+### ใช้ทุกโหมดได้เหมือนกัน
+
+Export/Deploy ใช้ได้ทั้ง detect / OBB / classify — `4_run.py` อ่าน task จากโมเดลเอง
+และ `--headless` พิมพ์ผล (`name center=(x, y)px conf=...`) ลง console
+พร้อมส่งต่อเข้า MQTT/Node-RED/PLC ได้เลย
+
+> โมเดลจากปุ่ม **Download Model** บนเว็บ (TensorFlow) รันบน Pi ได้แต่ช้า —
+> ถ้าเป้าหมายคือ Edge ให้ใช้เส้นทาง **Download Dataset → เทรน YOLO → Step 5** จะเหมาะกว่า
 
 > เว็บเวอร์ชัน (in-browser trainer) ยังเหมาะสำหรับสอนและ POC เร็วๆ —
 > แต่เมื่อต้องใช้งานจริง ให้มาทางนี้
