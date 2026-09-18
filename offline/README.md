@@ -108,6 +108,18 @@ python 4_run.py --weights best.engine    # เร็วขึ้นมาก, �
 python 4_run.py --weights best.engine --headless   # ผ่าน SSH ไม่มีจอ
 ```
 
+### Sample Code แถมทุกครั้งที่ Export
+
+`5_export.py` เขียนไฟล์ตัวอย่างไว้ข้างโมเดลให้อัตโนมัติ:
+
+- **`sample_predict.py`** — ฟังก์ชัน `predict(frame)` คืน dict พร้อมใช้
+  (`name`, `conf`, `center`, `box`/`corners`) — รองรับ detect / OBB / classify
+  อัตโนมัติ ก๊อปไปใช้ในโปรเจกต์ตัวเองได้เลย: `from sample_predict import predict`
+- **`SAMPLE_README.md`** — วิธีใช้ 3 แบบ (demo / ในโค้ดตัวเอง / ส่งเข้า MQTT → Node-RED)
+
+อยากได้ sample โดยไม่ export ก็ได้: `python 5_export.py --sample-only`
+(ใช้กับ `best.pt` ตรง ๆ — เหมาะกับตอนพัฒนาบน PC)
+
 ### ใช้ทุกโหมดได้เหมือนกัน
 
 Export/Deploy ใช้ได้ทั้ง detect / OBB / classify — `4_run.py` อ่าน task จากโมเดลเอง
