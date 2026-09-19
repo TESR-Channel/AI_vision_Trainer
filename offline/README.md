@@ -1,16 +1,19 @@
-# TESR Offline Trainer — production-grade YOLO: train in 4 steps, deploy to Edge in 1 more
+# TESR Offline Trainer — from web dataset to a deployed edge model
 
-เทรน AI Detection **ของจริง** บนเครื่องคุณเอง — YOLO เรียนรู้ตำแหน่งวัตถุโดยตรง
-กรอบแม่น หลายวัตถุพร้อมกัน Real-time และ **ไม่ต้องนั่งลากกรอบเอง**:
-ถ่ายบนพื้นเรียบ แล้วสคริปต์ตีกรอบให้อัตโนมัติ
+**One path. No detours.** Collect and label on the [web trainer](https://tesr-channel.github.io/AI_vision_Trainer/),
+train and export **on your computer**, then copy the finished model to the edge device.
 
-Train a **real** YOLO detector on your own machine. Accurate boxes,
-multi-object, real-time — and **no manual box drawing**: shoot on a plain
-background and Step 2 labels everything automatically.
+```text
+🌐 Web page              💻 Your computer                      📦 Edge device
+collect + label   →   3_train.py → 4_run.py → 5_export.py   →   copy model → run
+(Download Dataset)     train        test       package           Raspberry Pi / Jetson
+```
 
-## Install (once)
+*(ภาษาไทยด้านล่าง / Thai version below)*
 
-Python **3.10–3.12** (TensorFlow ไม่เกี่ยวแล้ว — ตัวนี้ใช้ PyTorch ผ่าน ultralytics):
+## Install once (on your computer)
+
+Python **3.10–3.12**:
 
 ```bash
 python -m venv venv
@@ -18,116 +21,139 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-มี GPU NVIDIA = เทรนเร็วมาก · ไม่มีก็เทรนได้ด้วย CPU (ช้ากว่า แต่ได้ผลเท่ากัน)
+An NVIDIA GPU trains in minutes; CPU also works, just slower — same result.
 
-## เลือกโหมดได้: Detection หรือ Classification
-
-| โหมด | ได้อะไร | คำสั่ง Step 2 |
-|---|---|---|
-| **Object Detection** (default) | กรอบ + center (x, y) หลายวัตถุพร้อมกัน | `python 2_autolabel.py` |
-| **Rotated Boxes (OBB)** | กรอบ**เฉียงหมุนตามวัตถุ** เช่นบอร์ดที่วางเอียง | `python 2_autolabel.py --obb` |
-| **Classification** | ชื่อคลาสทั้งเฟรม (ไม่มีกรอบ — ง่ายและเร็วที่สุด) | `python 2_autolabel.py --task classify` |
-
-`3_train.py` และ `4_run.py` **ตรวจโหมดให้อัตโนมัติ** — Detection/OBB ดูจาก `data.yaml`
-+ จำนวนตัวเลขใน label (5 = yolov8n, 9 = yolov8n-obb), Classification ดูจากโฟลเดอร์
-`train/<class>/` (ใช้ yolov8n-cls) — คำสั่งเทรนและรันเหมือนกันทุกโหมด ไม่ต้องจำอะไรเพิ่ม
-
-`4_run.py` มี**บรรทัดสถานะบนจอตลอดเวลา**: เจอกี่ชิ้น หรือถ้าไม่ผ่านเกณฑ์ จะบอกว่า
-candidate ที่ดีที่สุดคืออะไรกี่ % พร้อมแนะ `--conf` ที่ควรลอง — จะไม่มีการ "เงียบ" อีก
-
-## ทางลัด: Label บนเว็บ แล้วมาเทรนที่นี่ (แนะนำ)
-
-ใช้[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)เก็บภาพ (+ ลากกรอบถ้าเป็น
-Detection — สะดวกกว่า และไม่ต้องพึ่งพื้นหลังเรียบ) เลือก Task บนเว็บได้ทั้งสองโหมด แล้ว:
-
-1. กดปุ่ม **⬇ Download Dataset (YOLO)** ในหน้าเว็บ (Step 3 · Collect & Label)
-2. แตก zip แล้ววางโฟลเดอร์ `dataset/` ไว้ข้างสคริปต์เหล่านี้ (แทน Step 1–2 ด้านล่าง)
-   — โครงสร้างใน zip ถูกต้องตามโหมดที่เลือกบนเว็บอยู่แล้ว (หมุนกรอบบนเว็บ = YOLO OBB อัตโนมัติ)
-3. `python 3_train.py` → `python 4_run.py` — จบ
-
-## The 4 steps
+## The steps
 
 ```bash
-python 1_capture.py --name jetson --auto 4   # (ข้ามได้ถ้าใช้ dataset จากเว็บ) ถ่ายรูป ~100 ใบ/คลาส
-python 1_capture.py --name pi --auto 4
-python 2_autolabel.py                        # ตีกรอบอัตโนมัติ + สร้าง dataset (เติม --review ถ้าอยากตรวจทีละใบ)
-python 3_train.py                            # เทรน YOLO (GPU อัตโนมัติถ้ามี)
-python 4_run.py                              # กล้องสด: กรอบ + center (x, y)px — กด q ออก
+# 1. On the web page: collect photos, draw boxes (Detection) or skip boxes
+#    (Classification), then press "Download Dataset (YOLO)".
+# 2. Unzip it and put the "dataset/" folder here, next to 3_train.py.
+
+python 3_train.py                # auto-detects the task -> best.pt
+python 4_run.py --conf 0.25      # test with your webcam on this computer
+python 5_export.py --target pi   # package for the edge device (run HERE)
 ```
 
-## Tips for the auto-labeler
+The task is detected automatically — no flags to remember:
 
-- **พื้นหลังสีเรียบสีเดียว** (เสื่อดำ/กระดาษขาว) — หัวใจของการตีกรอบอัตโนมัติ
-- วัตถุ **1 ชิ้นต่อรูป** ตอนถ่ายเก็บ Dataset
-- ขยับให้ทั่ว: มุม ขอบ ใกล้ ไกล เอียง — YOLO เสริม flip/scale/mosaic ให้เองตอนเทรน
-- รูปที่ตีกรอบไม่ได้จะไปอยู่ `dataset/needs_review/` — ถ่ายใหม่บนพื้นเรียบกว่าเดิม
-- ~100 รูป/คลาส ก็เทรนได้ดีแล้ว (มากกว่านั้นยิ่งดี)
+| dataset/ contains | 3_train.py picks | 4_run.py shows |
+|---|---|---|
+| data.yaml + 5-number labels | yolov8n (detection) | boxes + center (x, y) |
+| data.yaml + 9-number labels | yolov8n-obb (rotated) | tilted boxes + center |
+| train/\<class\>/ folders | yolov8n-cls (classification) | class name + % |
 
-## Troubleshooting
+`4_run.py` shows an **always-on status line**: how many objects passed the
+threshold, or the best candidate below it with a suggested `--conf` — a silent
+run never happens.
 
-| อาการ | ทางแก้ |
-|---|---|
-| กล้องเปิดไม่ได้ | `--camera 1` / ปิดแอปที่ใช้กล้องอยู่ (เบราว์เซอร์, Zoom) |
-| เทรนช้ามาก | ปกติของ CPU — ลด `--epochs 40` หรือใช้เครื่องที่มี GPU |
-| กรอบอัตโนมัติเพี้ยน | พื้นหลังลายเกินไป — ใช้พื้นเรียบ แล้วรัน `2_autolabel.py --review` |
-| รันแล้วไม่ขึ้นกรอบอะไรเลย | ดูบรรทัดสถานะบนจอ — มักเป็นเพราะ conf ต่ำ: ลอง `--conf 0.25` + เก็บรูปเพิ่ม (40–100/คลาส) ในแสงที่ใช้จริง |
-| ตรวจจับพลาดตอนใช้จริง | เก็บรูปเพิ่มในสภาพแสง/ฉากที่ใช้จริง แล้วเทรนซ้ำ |
+## Deploy to the edge device
 
-## Step 5 — Deploy ลง Edge Device (Raspberry Pi / Jetson Orin Nano)
-
-โมเดลที่เทรนได้ (`best.pt` — จากเว็บ dataset หรือถ่ายเองก็ตาม) เอาไปรันบน Edge ได้เลย
-สคริปต์ชุดเดียวกันทั้งหมด แค่ก๊อปโฟลเดอร์ `offline/` + `best.pt` ไปที่เครื่อง
+**Export on this computer**, then copy the result to the device. `5_export.py`
+also writes **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** next to the
+model — a `predict(frame)` function returning plain dicts (name, conf, center,
+box/corners) for all tasks, plus an MQTT → Node-RED example.
 
 ### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit)
 
 ```bash
+# On your computer:
+python 5_export.py --target pi           # -> best_ncnn_model/ (portable)
+# Copy to the Pi: best_ncnn_model/, 4_run.py, sample_predict.py, requirements.txt
+# On the Pi:
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt          # ultralytics + opencv (CPU)
-
-python 4_run.py --conf 0.25              # รันจาก best.pt ได้ทันที (ช้าหน่อย)
-
-# เร่งความเร็ว: แปลงเป็น NCNN (เร็วสุดบน CPU ของ Pi)
-python 5_export.py --target pi           # ได้โฟลเดอร์ best_ncnn_model/
+pip install -r requirements.txt
 python 4_run.py --weights best_ncnn_model --headless
-# ยังช้า? ลดขนาด input: python 5_export.py --target pi --imgsz 320
 ```
 
-- กล้อง **USB webcam ใช้ได้ทันที** (cv2.VideoCapture) — กล้อง CSI ต้องผ่าน
-  picamera2/GStreamer ซึ่งยังไม่อยู่ในสคริปต์ชุดนี้
-- FPS จริงขึ้นกับรุ่น Pi / ขนาด input / จำนวนคลาส — **วัดบนเครื่องจริงก่อนตัดสินใจ**
+USB webcams work out of the box. Too slow? Re-export with `--imgsz 320`.
+Real FPS depends on the Pi model, input size and class count — **measure on
+the real device before deciding**.
 
 ### NVIDIA Jetson Orin Nano (JetPack 6)
 
-PyTorch บน Jetson ต้องใช้ wheel ของ NVIDIA (pip ปกติจะได้ตัว CPU) — ติดตั้งตาม
-คู่มือ ultralytics สำหรับ Jetson หรือใช้ Docker image ของ ultralytics แล้ว:
-
 ```bash
-# ⚠️ .engine ผูกกับ GPU ที่ build — ต้องรันคำสั่งนี้ "บน Jetson" เท่านั้น
-python 5_export.py --target jetson       # TensorRT FP16 → best.engine
-python 4_run.py --weights best.engine    # เร็วขึ้นมาก, คำสั่งรันเหมือนเดิม
-python 4_run.py --weights best.engine --headless   # ผ่าน SSH ไม่มีจอ
+# Copy to the Jetson: best.pt, 4_run.py, sample_predict.py
+# On the Jetson (PyTorch must be NVIDIA's wheel or the ultralytics Docker image):
+python 4_run.py --weights best.pt --headless    # runs on the GPU directly
 ```
 
-### Sample Code แถมทุกครั้งที่ Export
+`--headless` prints `name center=(x, y)px conf=...` to the console over SSH —
+ready to pipe into MQTT / Node-RED / a PLC. Works for every task.
 
-`5_export.py` เขียนไฟล์ตัวอย่างไว้ข้างโมเดลให้อัตโนมัติ:
+> **Optional speed-up (advanced):** on the Jetson itself,
+> `python 5_export.py --target jetson` builds a TensorRT FP16 engine.
+> A `.engine` only runs on the machine that built it — that is why the main
+> path simply copies `best.pt`.
 
-- **`sample_predict.py`** — ฟังก์ชัน `predict(frame)` คืน dict พร้อมใช้
-  (`name`, `conf`, `center`, `box`/`corners`) — รองรับ detect / OBB / classify
-  อัตโนมัติ ก๊อปไปใช้ในโปรเจกต์ตัวเองได้เลย: `from sample_predict import predict`
-- **`SAMPLE_README.md`** — วิธีใช้ 3 แบบ (demo / ในโค้ดตัวเอง / ส่งเข้า MQTT → Node-RED)
+## Troubleshooting
 
-อยากได้ sample โดยไม่ export ก็ได้: `python 5_export.py --sample-only`
-(ใช้กับ `best.pt` ตรง ๆ — เหมาะกับตอนพัฒนาบน PC)
+| Symptom | Fix |
+|---|---|
+| Camera will not open | try `--source 0` / `--source 1`; close apps using it (browser Live Test tab, Zoom) |
+| Training is slow | normal on CPU — lower `--epochs 40` or use a machine with an NVIDIA GPU |
+| Run shows no boxes at all | read the on-screen status line — usually low conf: try `--conf 0.25` and collect more photos (40–100/class) in the real lighting |
+| Wrong detections in the real scene | collect more photos in the real lighting/background, retrain |
 
-### ใช้ทุกโหมดได้เหมือนกัน
+---
 
-Export/Deploy ใช้ได้ทั้ง detect / OBB / classify — `4_run.py` อ่าน task จากโมเดลเอง
-และ `--headless` พิมพ์ผล (`name center=(x, y)px conf=...`) ลง console
-พร้อมส่งต่อเข้า MQTT/Node-RED/PLC ได้เลย
+# TESR Offline Trainer — จาก dataset บนเว็บ สู่โมเดลที่ deploy บน Edge
 
-> โมเดลจากปุ่ม **Download Model** บนเว็บ (TensorFlow) รันบน Pi ได้แต่ช้า —
-> ถ้าเป้าหมายคือ Edge ให้ใช้เส้นทาง **Download Dataset → เทรน YOLO → Step 5** จะเหมาะกว่า
+**ทางเดียว ไม่มีทางแยก** เก็บรูปและ label บน[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)
+เทรนและ export **บนคอมพิวเตอร์ของคุณ** แล้วก๊อปโมเดลที่เสร็จแล้วไปที่อุปกรณ์ Edge
 
-> เว็บเวอร์ชัน (in-browser trainer) ยังเหมาะสำหรับสอนและ POC เร็วๆ —
-> แต่เมื่อต้องใช้งานจริง ให้มาทางนี้
+```text
+🌐 หน้าเว็บ                💻 คอมพิวเตอร์ของคุณ                  📦 Edge device
+ถ่าย + label     →   3_train.py → 4_run.py → 5_export.py   →   ก๊อปโมเดล → รัน
+(Download Dataset)     เทรน         ทดสอบ       แพ็ก               Raspberry Pi / Jetson
+```
+
+## ติดตั้งครั้งเดียว (บนคอมพิวเตอร์)
+
+Python **3.10–3.12** → `python -m venv venv` → activate → `pip install -r requirements.txt`
+มี GPU NVIDIA เทรนไม่กี่นาที · CPU ก็ได้ ช้ากว่าแต่ผลเท่ากัน
+
+## ขั้นตอน
+
+```bash
+# 1. บนเว็บ: ถ่ายรูป + ลากกรอบ (Detection) หรือไม่ต้องลาก (Classification)
+#    แล้วกด "Download Dataset (YOLO)"
+# 2. แตก zip วางโฟลเดอร์ dataset/ ไว้ที่นี่ ข้าง 3_train.py
+
+python 3_train.py                # ตรวจโหมดอัตโนมัติ -> best.pt
+python 4_run.py --conf 0.25      # ทดสอบด้วย webcam บนคอมพิวเตอร์
+python 5_export.py --target pi   # แพ็กสำหรับ Edge (รัน "ที่นี่" บนคอมพิวเตอร์)
+```
+
+ตัวกำหนดโหมดคือ Task ที่เลือกบนเว็บก่อนกด Download — `3_train.py` อ่านจากโครงสร้าง
+dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอียง, โฟลเดอร์ต่อคลาส = classify)
+และ `4_run.py` มีบรรทัดสถานะบนจอตลอด จะไม่มีการรันแบบ "เงียบ"
+
+## Deploy ลง Edge
+
+**Export บนคอมพิวเตอร์** แล้วก๊อปผลลัพธ์ไปที่เครื่อง — `5_export.py` แถม
+**`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** ให้ทุกครั้ง: ฟังก์ชัน
+`predict(frame)` คืน dict พร้อมใช้ + ตัวอย่าง MQTT → Node-RED
+
+- **Raspberry Pi 4/5:** `python 5_export.py --target pi` บนคอมพิวเตอร์ →
+  ก๊อป `best_ncnn_model/` + `4_run.py` + `sample_predict.py` + `requirements.txt`
+  ไปที่ Pi → ติดตั้ง venv + requirements → `python 4_run.py --weights best_ncnn_model --headless`
+  (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
+- **Jetson Orin Nano:** ก๊อป `best.pt` + สคริปต์ไปที่ Jetson (PyTorch ต้องเป็น wheel
+  ของ NVIDIA หรือ Docker ของ ultralytics) → `python 4_run.py --weights best.pt --headless`
+  รันบน GPU ได้เลย
+- `--headless` พิมพ์ `name center=(x, y)px conf=...` ผ่าน SSH — ส่งต่อเข้า
+  MQTT/Node-RED/PLC ได้ทันที ใช้ได้ทุกโหมด
+
+> **ทางเลือกเร่งความเร็ว (advanced):** บนตัว Jetson เอง รัน
+> `python 5_export.py --target jetson` เพื่อ build TensorRT engine —
+> `.engine` ใช้ได้เฉพาะเครื่องที่ build เท่านั้น เส้นทางหลักจึงใช้แค่ `best.pt`
+
+## Troubleshooting (ไทย)
+
+| อาการ | ทางแก้ |
+|---|---|
+| กล้องเปิดไม่ได้ | `--source 0` / `--source 1`, ปิดแอปที่ใช้กล้องอยู่ (แท็บ Live Test, Zoom) |
+| เทรนช้า | ปกติของ CPU — ลด `--epochs 40` หรือใช้เครื่องที่มี GPU |
+| รันแล้วไม่ขึ้นกรอบ | ดูบรรทัดสถานะบนจอ — มักเป็น conf ต่ำ: `--conf 0.25` + เก็บรูปเพิ่ม (40–100/คลาส) ในแสงจริง |
+| ใช้จริงแล้วตรวจพลาด | เก็บรูปเพิ่มในแสง/ฉากที่ใช้จริง แล้วเทรนซ้ำ |
