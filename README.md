@@ -42,17 +42,17 @@ one command:**
 
 ```mermaid
 flowchart LR
-    A[🌐 Web page\ncollect + label] -->|Download Dataset| B[💻 Your computer\n3_train.py → 4_run.py → 5_export.py]
+    A[🌐 Web page\ncollect + label] -->|Download Dataset| B[💻 Your computer\ntrain.py → run.py → export.py]
     B -->|copy model| C[📦 Edge device\nRaspberry Pi / Jetson]
 ```
 
 Train and **export on your computer** (GPU trains in minutes, CPU also works),
 then copy the exported model + generated sample code to the device.
-`3_train.py` auto-detects detection / rotated (OBB) / classification from the
-dataset itself, and `5_export.py` writes a `sample_predict.py` you can drop
+`train.py` auto-detects detection / rotated (OBB) / classification from the
+dataset itself, and `export.py` writes a `sample_predict.py` you can drop
 into any project — plus an MQTT → Node-RED example.
 
-**Full guide: [`offline/README.md`](offline/README.md)** (English + Thai)
+**Full guide: [`yolo-trainer/README.md`](yolo-trainer/README.md)** (English + Thai)
 
 ## Honest limits of the in-browser model
 
@@ -70,11 +70,11 @@ and train it offline with YOLO — same photos, same labels, one command.
    สำหรับหุ่นยนต์/สายพาน) หรือ **Classification** (ไม่ต้องลากกรอบ เร็วที่สุด)
 2. ถ่ายรูป + ติด label บนเว็บ → เทรน → ทดสอบสดผ่าน webcam ได้ทันที
 3. จะเอาไปใช้จริง: กด **Download Dataset (YOLO)** แล้วเทรนด้วย YOLO
-   **บนคอมพิวเตอร์** (`python 3_train.py` — ตรวจโหมดให้อัตโนมัติ รวมกรอบเอียง OBB)
-4. Export บนคอมพิวเตอร์ (`python 5_export.py --target pi`) แล้วก๊อปโมเดล +
+   **บนคอมพิวเตอร์** (`python train.py` — ตรวจโหมดให้อัตโนมัติ รวมกรอบเอียง OBB)
+4. Export บนคอมพิวเตอร์ (`python export.py --target pi`) แล้วก๊อปโมเดล +
    sample code ที่ระบบสร้างให้ ไปรันบน Raspberry Pi / Jetson
 
-คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`offline/README.md`](offline/README.md)
+คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`yolo-trainer/README.md`](yolo-trainer/README.md)
 
 ## 📚 Learn more with TESR Academy
 
