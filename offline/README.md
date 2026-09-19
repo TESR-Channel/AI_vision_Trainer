@@ -54,17 +54,43 @@ also writes **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** next to the
 model — a `predict(frame)` function returning plain dicts (name, conf, center,
 box/corners) for all tasks, plus an MQTT → Node-RED example.
 
-### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit)
+### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit) — tested working
+
+**Step 1 — on your computer:**
 
 ```bash
-# On your computer:
 python 5_export.py --target pi           # -> best_ncnn_model/ (portable)
-# Copy to the Pi: best_ncnn_model/, 4_run.py, sample_predict.py, requirements.txt
-# On the Pi:
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python 4_run.py --weights best_ncnn_model --headless
 ```
+
+**Step 2 — copy ONLY these 4 items to the Pi** (e.g. into `/home/pi/offline/`).
+Nothing else — you do **not** need `best.pt`, `3_train.py`, `5_export.py` or the
+dataset on the Pi:
+
+| Copy this | Why |
+|---|---|
+| `best_ncnn_model/` (the whole folder) | your exported model |
+| `4_run.py` | the live demo |
+| `requirements.txt` | installs the dependencies |
+| `sample_predict.py` *(optional)* | only if you will write your own code |
+
+**Step 3 — on the Pi, install once:**
+
+```bash
+cd ~/offline
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Step 4 — run:**
+
+```bash
+python 4_run.py --weights best_ncnn_model
+```
+
+A window opens with the box, center crosshair and the status line — press `q`
+to quit. Working over SSH with no screen? Add `--headless` and it prints
+`name center=(x, y)px conf=...` to the console instead.
 
 USB webcams work out of the box. Too slow? Re-export with `--imgsz 320`.
 Real FPS depends on the Pi model, input size and class count — **measure on
@@ -135,9 +161,15 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
 **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** ให้ทุกครั้ง: ฟังก์ชัน
 `predict(frame)` คืน dict พร้อมใช้ + ตัวอย่าง MQTT → Node-RED
 
-- **Raspberry Pi 4/5:** `python 5_export.py --target pi` บนคอมพิวเตอร์ →
-  ก๊อป `best_ncnn_model/` + `4_run.py` + `sample_predict.py` + `requirements.txt`
-  ไปที่ Pi → ติดตั้ง venv + requirements → `python 4_run.py --weights best_ncnn_model --headless`
+- **Raspberry Pi 4/5 (ทดสอบแล้วใช้ได้จริง):**
+  1. บนคอมพิวเตอร์: `python 5_export.py --target pi` → ได้ `best_ncnn_model/`
+  2. **ก๊อปไป Pi แค่ 4 อย่างเท่านั้น**: โฟลเดอร์ `best_ncnn_model/` ทั้งโฟลเดอร์,
+     `4_run.py`, `requirements.txt` และ `sample_predict.py` (เฉพาะถ้าจะเขียนโค้ดเอง)
+     — **ไม่ต้องเอา** `best.pt`, `3_train.py`, `5_export.py` หรือ dataset ไปด้วย
+  3. บน Pi (ครั้งแรกครั้งเดียว): `python3 -m venv venv` → `source venv/bin/activate` →
+     `pip install -r requirements.txt`
+  4. รัน: `python 4_run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
+     center (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
   (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
 - **Jetson Orin Nano:** ก๊อป `best.pt` + สคริปต์ไปที่ Jetson (PyTorch ต้องเป็น wheel
   ของ NVIDIA หรือ Docker ของ ultralytics) → `python 4_run.py --weights best.pt --headless`
