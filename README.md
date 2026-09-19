@@ -1,163 +1,90 @@
 # TESR AI Vision Web Trainer
 
-**Train your own image-recognition AI — right in your browser. Nothing to install.**
+Train an image-recognition AI **entirely in your browser** — nothing to install,
+your photos never leave your computer — then take the *same dataset* to
+production-grade YOLO on your PC and deploy it to a Raspberry Pi or NVIDIA Jetson.
 
-Choose your task, show your objects to the camera, draw boxes (detection) or
-skip straight to training (classification), and watch the AI work live —
-including the object's **center position (x, y)**, the number a robot arm or
-conveyor system needs. Everything runs on **your own computer inside the
-browser**; your photos never leave your machine.
+**▶ Try it now: https://tesr-channel.github.io/AI_vision_Trainer/**
 
-> 🎓 Built by [TESR — Thai Embedded Systems and Robotics](https://tesrshop.com)
-> for makers, students and engineers. *Learn it. Build it. Deploy it. For real.*
+![TESR](logo.png)
 
----
+## What you can build in 10 minutes
 
-## ✨ What it does
+- **Object Detection** — draw boxes (straight *or rotated*), the AI finds your
+  object and reports its **center position (x, y)** live — the numbers a robot
+  arm, conveyor or sorting system needs.
+- **Classification** — no boxes at all: the AI names what it sees. The fastest
+  path for sorting, go/no-go checks and demos.
 
-| | |
-|---|---|
-| 🧭 **Choose your task** | **Object Detection** (what & where — you draw the boxes) or **Classification** (what is it — fastest, no boxes) |
-| 🧩 **Define classes** | e.g. `jetson_board` vs `raspberry_pi` — add a `background` class for best results |
-| 📷 **Collect & label** | Hold-to-capture bursts, then draw a tight box on each photo right in the page (red border = needs a box, green = done). **Scroll / Q / E rotates the box** to follow tilted objects. Keyboard-fast: Enter = save & next |
-| ✨ **Auto augmentation** | ×2–×5 more images in one click — boxes are transformed together with the image, and generated photos can be exported into the YOLO dataset (train split only) |
-| 🧠 **Train in seconds** | Transfer learning on your GPU (WebGL/WebGPU); detection trains a classifier + a box model |
-| 🎯 **Test live** | **Precise grid scan** finds the object wherever it is (~1 fps) or **Fast** smooth box; crosshair + **center** in pixels on screen |
-| 🛡 **Honest "none"** | Two gates (confidence + feature similarity) — an empty scene answers **none**, not a wrong guess |
-| 💾 **Export** | One .zip: model + Python sample (draws box & center) + one-click installers + README |
-| 🗂 **Dataset export** | One click turns your photos into a ready **YOLO dataset** for offline training — detection (images + labels + data.yaml), **rotated boxes → YOLO OBB** automatically, or classification (folder per class), matching your chosen task |
+Everything runs on WebGL/WebGPU in the page: capture from your webcam, upload
+files, auto-augment small datasets, train in seconds, test live, and export.
 
-## 📏 How many photos do I need?
+## Try it
 
-The page tracks this for you, per class, with live ✔/⚠ counters:
+1. Open the page (Chrome/Edge recommended). The UI is **English by default;
+   the 🌐 button switches the page to Thai**.
+2. Pick a task, add 2+ classes (a "background" class of your empty scene makes
+   the "none" answer much more reliable).
+3. Hold **Capture** while moving the object around — angle, distance, lighting.
+4. Detection: click a photo (or **Label photos**) and drag a box.
+   **Scroll / Q / E rotates the box** for tilted objects — it exports as YOLO OBB.
+5. **Train**, then **Live Test** with your webcam.
+6. **Export** — two downloads, two purposes:
+   - **Export Model (.zip)** — the browser model + a ready-to-run Python sample
+     (draws box + center), one-click installers, README.
+   - **Download Dataset (YOLO)** — your photos + labels, ready for real YOLO training below.
 
-| Task | Minimum | Noticeably better |
-|---|---|---|
-| Object Detection | **40 labeled photos / class** | 80+ |
-| Classification | **30 photos / class** | 60+ |
+## 🏭 From browser to edge — one path
 
-Variety beats quantity: change angle, distance, background and lighting.
-For detection, also **move the object around the frame** while capturing —
-corners, edges, near and far. Position variety is what teaches the box model
-*where*; photos with the object always in the same spot produce boxes stuck
-near the frame center.
-
-## 🔒 Privacy by design
+The in-browser model is great for learning and quick demos, but production wants
+YOLO. **Download the dataset and train it offline — same photos, same labels,
+one command:**
 
 ```mermaid
 flowchart LR
-    A[📷 Your camera] --> B[🧠 AI training<br>inside your browser]
-    B --> C[🎯 Live box + center<br>on your screen]
-    B -.->|nothing is uploaded| X[(☁️ No server)]
+    A[🌐 Web page\ncollect + label] -->|Download Dataset| B[💻 Your computer\n3_train.py → 4_run.py → 5_export.py]
+    B -->|copy model| C[📦 Edge device\nRaspberry Pi / Jetson]
 ```
 
-There is **no backend**. The page is static — all computation (feature extraction,
-labeling, training, inference) happens in your browser tab using
-[TensorFlow.js](https://www.tensorflow.org/js). Close the tab and everything is
-gone, except the model you chose to download.
+Train and **export on your computer** (GPU trains in minutes, CPU also works),
+then copy the exported model + generated sample code to the device.
+`3_train.py` auto-detects detection / rotated (OBB) / classification from the
+dataset itself, and `5_export.py` writes a `sample_predict.py` you can drop
+into any project — plus an MQTT → Node-RED example.
 
-## 🚀 Try it
+**Full guide: [`offline/README.md`](offline/README.md)** (English + Thai)
 
-1. Open https://tesr-channel.github.io/AI_vision_Trainer/
-2. The page checks your device first and tells you honestly whether it can train
-   (🟢 GPU / 🟡 CPU-only / 🔴 unsupported)
-3. Pick **Object Detection** or **Classification** → add **2+ classes** →
-   capture → (detection) draw boxes → **Train** → point the camera and enjoy
+## Honest limits of the in-browser model
 
-## 🏭 Two paths — one dataset
+The browser trainer uses feature-embedding + a small head — perfect for
+learning and prototyping, **one object per frame**, and accuracy below a fully
+trained YOLO. When you outgrow it, you don't start over: download the dataset
+and train it offline with YOLO — same photos, same labels, one command.
 
-Use the browser for what it does best — **collecting photos and drawing boxes** —
-then choose where to train:
+## 🇹🇭 สรุปภาษาไทย (Thai summary)
 
-```mermaid
-flowchart LR
-    W[🌐 Web page<br>collect + label] --> A[🧪 Path A: train & test in browser<br>instant — perfect for learning and POC]
-    W --> B[🏭 Path B: ⬇ Download Dataset YOLO<br>python 3_train.py → 4_run.py<br>production-grade accuracy]
-```
+เทรน AI ตรวจจับ/จำแนกภาพได้ทั้งหมดในเบราว์เซอร์ โดยไม่ต้องติดตั้งอะไรและรูปไม่ออกจากเครื่อง
+(กดปุ่ม 🌐 บนหน้าเว็บเพื่อสลับเป็นภาษาไทย)
 
-**Path A** is everything above — train, test live, export, all in the page.
+1. เลือกโหมด: **Detection** (ลากกรอบ หมุนกรอบตามวัตถุเอียงได้ ได้ตำแหน่ง center
+   สำหรับหุ่นยนต์/สายพาน) หรือ **Classification** (ไม่ต้องลากกรอบ เร็วที่สุด)
+2. ถ่ายรูป + ติด label บนเว็บ → เทรน → ทดสอบสดผ่าน webcam ได้ทันที
+3. จะเอาไปใช้จริง: กด **Download Dataset (YOLO)** แล้วเทรนด้วย YOLO
+   **บนคอมพิวเตอร์** (`python 3_train.py` — ตรวจโหมดให้อัตโนมัติ รวมกรอบเอียง OBB)
+4. Export บนคอมพิวเตอร์ (`python 5_export.py --target pi`) แล้วก๊อปโมเดล +
+   sample code ที่ระบบสร้างให้ ไปรันบน Raspberry Pi / Jetson
 
-**Path B** — when the box must be right every time (production lines, robots,
-multi-object): press **⬇ Download Dataset (YOLO)** in step 3, unzip the
-`dataset/` folder next to the [**TESR Offline Trainer**](offline/) scripts, then
-`python 3_train.py` → `python 4_run.py`. Works for **both tasks** — the zip
-matches your chosen task (detection or classification) and `3_train.py` detects
-it automatically. The trained model then deploys straight to edge devices with
-`offline/5_export.py` — Raspberry Pi (NCNN) or Jetson (TensorRT) — and runs
-headless with `4_run.py --headless`. For detection, your hand-drawn boxes are the labels, so no
-plain background is required. (Skipping the web entirely? The offline
-trainer also has its own capture + **auto-label** scripts — see
-[offline/README.md](offline/README.md).)
-
-## 🧠 How it works (for the curious)
-
-**MobileNet** (in-browser) turns each photo into a compact feature vector.
-Training then takes seconds because only two small heads learn on top:
-
-```mermaid
-flowchart LR
-    F[📷 Frame] --> M[MobileNet<br>feature extractor]
-    M --> H[Class head<br>softmax]
-    M --> B[Box head<br>cx, cy, w, h]
-    H --> P[🎯 name + confidence]
-    B --> Q[📍 box + center x,y]
-```
-
-**Two box modes:** *Precise* classifies 25 crops per frame and picks where your
-class scores highest — it finds the object anywhere in the frame at ~1 fps.
-*Fast* is a trained regression head — real-time and smooth, but coarser and it
-needs training photos with the object in many positions.
-
-**The honest limit:** this lightweight detector handles **one object per
-frame** — perfect for learning the full detection workflow
-(collect → label → train → deploy) and for many single-object tasks. For
-multi-object, production-grade boxes, the same workflow scales up in the
-**TESR Desktop Trainer (YOLO)**.
-
-**The "none" answer (two gates):** a classifier always picks *some* class — and
-can be overconfident on an empty scene. So besides the confidence threshold, at
-training time the app remembers what your classes *look like* (feature
-prototypes, saved as `prototypes.json`). A frame that resembles none of your
-training photos answers **"none"** even at 100% classifier confidence.
-
-## 🐍 Use your model in Python
-
-The **Export** button gives you one `tesr-web-model.zip`:
-
-```
-model.json + weights.bin        class model (TensorFlow.js format)
-box_model.json + box_weights.bin box model (detection exports)
-config.json                     task + preprocessing settings
-classes.txt                     class names, one per line
-prototypes.json                 class "signatures" that power the "none" answer
-predict.py                      webcam or image — draws box + center, prints position
-requirements.txt                3 packages: tensorflow-cpu, numpy, opencv-python
-install_windows.bat             one-click installer (Windows)
-install_linux.sh                one-command installer (Linux/macOS)
-README_PYTHON.md                step-by-step instructions
-```
-
-Quick start (**Python 3.10–3.12** — TensorFlow does not support 3.13/3.14 yet;
-on new Ubuntu releases the installer tells you exactly what to do):
-
-```bash
-unzip tesr-web-model.zip -d my-model && cd my-model
-bash install_linux.sh               # Windows: double-click install_windows.bat
-source venv/bin/activate            # Windows: venv\Scripts\activate
-python predict.py --source 0        # live webcam — press q to quit
-```
-
-`predict.py` reads `config.json`, rebuilds the same pipeline in Python, draws
-the box and crosshair, and prints the **center in pixels** — ready
-to feed MQTT, a PLC, or a robot arm. `--mode classify` runs any detection
-export as a plain classifier.
+คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`offline/README.md`](offline/README.md)
 
 ## 📚 Learn more with TESR Academy
 
-This project is part of TESR's hands-on AI education:
-**AI Vision Engineering for Edge AI** — Build, Train & Deploy AI to Edge Devices.
-Follow us for workshops, courses and real deployment projects.
+This trainer is part of TESR's hands-on AI Vision courses — **Build, Train and
+Deploy AI to Edge Devices**: Raspberry Pi, NVIDIA Jetson, industrial cameras,
+MQTT/Node-RED integration and Smart Factory solutions.
+
+- 🌐 [tesracademy.com](https://tesracademy.com) · 🛒 [tesrshop.com](https://tesrshop.com)
+- Facebook / YouTube: **TESR Channel**
 
 ## License
 
-MIT © TESR — Thai Embedded Systems and Robotics
+MIT — use it, teach with it, build on it.
