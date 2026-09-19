@@ -73,18 +73,30 @@ dataset on the Pi:
 | `requirements.txt` | installs the dependencies |
 | `sample_predict.py` *(optional)* | only if you will write your own code |
 
-**Step 3 — on the Pi, install once:**
+**Step 3 — on the Pi, install once** (Raspberry Pi OS blocks `pip` on the
+system Python — PEP 668 — so a virtual environment is required, **never
+`sudo pip3`**):
 
 ```bash
-cd ~/offline
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+sudo apt update
+sudo apt install -y python3-venv python3-full
+
+python3 -m venv --system-site-packages ~/yolo-env
+source ~/yolo-env/bin/activate       # prompt now starts with (yolo-env)
+
+python -m pip install --upgrade pip
+python -m pip install --no-cache-dir ncnn
+python -m pip install --no-cache-dir -r requirements.txt
 ```
 
-**Step 4 — run:**
+Quick check that you are inside the venv — `which python` must print
+`/home/pi/yolo-env/bin/python`.
+
+**Step 4 — run** (every new terminal: activate first):
 
 ```bash
+source ~/yolo-env/bin/activate
+cd ~/offline
 python 4_run.py --weights best_ncnn_model
 ```
 
@@ -116,6 +128,7 @@ ready to pipe into MQTT / Node-RED / a PLC. Works for every task.
 
 | Symptom | Fix |
 |---|---|
+| `externally-managed-environment` or `ModuleNotFoundError: ncnn` on the Pi | you installed with system Python or `sudo pip3` — redo Step 3 (venv), install without sudo |
 | Camera will not open | try `--source 0` / `--source 1`; close apps using it (browser Live Test tab, Zoom) |
 | Training is slow | normal on CPU — lower `--epochs 40` or use a machine with an NVIDIA GPU |
 | Run shows no boxes at all | read the on-screen status line — usually low conf: try `--conf 0.25` and collect more photos (40–100/class) in the real lighting |
@@ -166,9 +179,18 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
   2. **ก๊อปไป Pi แค่ 4 อย่างเท่านั้น**: โฟลเดอร์ `best_ncnn_model/` ทั้งโฟลเดอร์,
      `4_run.py`, `requirements.txt` และ `sample_predict.py` (เฉพาะถ้าจะเขียนโค้ดเอง)
      — **ไม่ต้องเอา** `best.pt`, `3_train.py`, `5_export.py` หรือ dataset ไปด้วย
-  3. บน Pi (ครั้งแรกครั้งเดียว): `python3 -m venv venv` → `source venv/bin/activate` →
-     `pip install -r requirements.txt`
-  4. รัน: `python 4_run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
+  3. บน Pi (ครั้งแรกครั้งเดียว) — Raspberry Pi OS กันไม่ให้ pip ลง Python ของระบบ
+     (PEP 668) ต้องใช้ venv เท่านั้น และ **ห้ามใช้ `sudo pip3` เด็ดขาด**:
+     `sudo apt install -y python3-venv python3-full` →
+     `python3 -m venv --system-site-packages ~/yolo-env` →
+     `source ~/yolo-env/bin/activate` (หน้าจอขึ้น `(yolo-env)` นำหน้า) →
+     `python -m pip install --upgrade pip` →
+     `python -m pip install --no-cache-dir ncnn` →
+     `python -m pip install --no-cache-dir -r requirements.txt`
+     (เช็คด้วย `which python` ต้องได้ `/home/pi/yolo-env/bin/python`)
+  4. รัน (เปิด Terminal ใหม่ต้อง activate ก่อนทุกครั้ง):
+     `source ~/yolo-env/bin/activate` → `cd ~/offline` →
+     `python 4_run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
      center (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
   (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
 - **Jetson Orin Nano:** ก๊อป `best.pt` + สคริปต์ไปที่ Jetson (PyTorch ต้องเป็น wheel
@@ -185,6 +207,7 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
 
 | อาการ | ทางแก้ |
 |---|---|
+| Pi ขึ้น `externally-managed-environment` / หา `ncnn` ไม่เจอ | ไปติดตั้งด้วย Python ระบบหรือ `sudo pip3` — ทำข้อ 3 ใหม่ (venv) และห้ามใช้ sudo |
 | กล้องเปิดไม่ได้ | `--source 0` / `--source 1`, ปิดแอปที่ใช้กล้องอยู่ (แท็บ Live Test, Zoom) |
 | เทรนช้า | ปกติของ CPU — ลด `--epochs 40` หรือใช้เครื่องที่มี GPU |
 | รันแล้วไม่ขึ้นกรอบ | ดูบรรทัดสถานะบนจอ — มักเป็น conf ต่ำ: `--conf 0.25` + เก็บรูปเพิ่ม (40–100/คลาส) ในแสงจริง |
