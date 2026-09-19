@@ -32,7 +32,7 @@ TARGETS = {
     "tflite": ("tflite", "TensorFlow Lite - for TFLite/Coral pipelines"),
 }
 
-SAMPLE_CODE = '''\"\"\"TESR AI Vision - minimal sample: use your trained model in YOUR OWN code.
+SAMPLE_CODE = '''"""TESR AI Vision - minimal sample: use your trained model in YOUR OWN code.
 
 Works with every model this toolkit produces (best.pt, best.engine,
 best_ncnn_model, .onnx) and every task - detection, rotated boxes (OBB)
@@ -47,66 +47,66 @@ Use in your own project (this is the point):
     results = predict(frame_bgr, conf=0.5)   # frame from cv2 (BGR)
 
 What predict() returns - plain Python you can use directly:
-    detection:      [{\"name\": \"pi\", \"conf\": 0.87, \"center\": (322, 240),
-                      \"box\": (250, 180, 394, 300)}, ...]
-    OBB (rotated):  [{\"name\": \"pi\", \"conf\": 0.87, \"center\": (322, 240),
-                      \"corners\": [(x, y), (x, y), (x, y), (x, y)]}, ...]
-    classification: [{\"name\": \"pi\", \"conf\": 0.93}]        # whole frame, one item
-\"\"\"
+    detection:      [{"name": "pi", "conf": 0.87, "center": (322, 240),
+                      "box": (250, 180, 394, 300)}, ...]
+    OBB (rotated):  [{"name": "pi", "conf": 0.87, "center": (322, 240),
+                      "corners": [(x, y), (x, y), (x, y), (x, y)]}, ...]
+    classification: [{"name": "pi", "conf": 0.93}]        # whole frame, one item
+"""
 import sys
 
 import cv2
 from ultralytics import YOLO
 
-WEIGHTS = \"__WEIGHTS__\"   # written by export.py - change to any other model file
+WEIGHTS = "__WEIGHTS__"   # written by export.py - change to any other model file
 
 model = YOLO(WEIGHTS)
-TASK = model.task if getattr(model, \"task\", None) in (\"classify\", \"obb\") else \"detect\"
+TASK = model.task if getattr(model, "task", None) in ("classify", "obb") else "detect"
 
 
 def predict(frame_bgr, conf=0.5):
-    \"\"\"One frame (cv2 BGR image) in -> list of result dicts out.\"\"\"
+    """One frame (cv2 BGR image) in -> list of result dicts out."""
     r = model(frame_bgr, conf=conf, verbose=False)[0]
     out = []
-    if TASK == \"classify\":
+    if TASK == "classify":
         p = r.probs
-        out.append({\"name\": r.names[int(p.top1)], \"conf\": float(p.top1conf)})
-    elif TASK == \"obb\":
+        out.append({"name": r.names[int(p.top1)], "conf": float(p.top1conf)})
+    elif TASK == "obb":
         if r.obb is not None:
             for i in range(len(r.obb)):
                 pts = [(float(x), float(y))
                        for x, y in r.obb.xyxyxyxy[i].reshape(-1, 2).tolist()]
                 cx = sum(p[0] for p in pts) / 4.0
                 cy = sum(p[1] for p in pts) / 4.0
-                out.append({\"name\": r.names[int(r.obb.cls[i])],
-                            \"conf\": float(r.obb.conf[i]),
-                            \"center\": (int(cx), int(cy)),
-                            \"corners\": pts})
+                out.append({"name": r.names[int(r.obb.cls[i])],
+                            "conf": float(r.obb.conf[i]),
+                            "center": (int(cx), int(cy)),
+                            "corners": pts})
     else:
         for b in r.boxes:
             x1, y1, x2, y2 = (float(v) for v in b.xyxy[0])
-            out.append({\"name\": r.names[int(b.cls[0])],
-                        \"conf\": float(b.conf[0]),
-                        \"center\": (int((x1 + x2) / 2), int((y1 + y2) / 2)),
-                        \"box\": (int(x1), int(y1), int(x2), int(y2))})
+            out.append({"name": r.names[int(b.cls[0])],
+                        "conf": float(b.conf[0]),
+                        "center": (int((x1 + x2) / 2), int((y1 + y2) / 2)),
+                        "box": (int(x1), int(y1), int(x2), int(y2))})
     return out
 
 
-if __name__ == \"__main__\":
-    src = sys.argv[1] if len(sys.argv) > 1 else \"0\"
-    print(\"Task: %s  |  classes: %s\" % (TASK, \", \".join(model.names.values())))
+if __name__ == "__main__":
+    src = sys.argv[1] if len(sys.argv) > 1 else "0"
+    print("Task: %s  |  classes: %s" % (TASK, ", ".join(model.names.values())))
 
     if not src.isdigit():                       # single image
         frame = cv2.imread(src)
         if frame is None:
-            raise SystemExit(\"Could not read image: \" + src)
+            raise SystemExit("Could not read image: " + src)
         for d in predict(frame):
             print(d)
         raise SystemExit(0)
 
     cap = cv2.VideoCapture(int(src))            # webcam - Ctrl+C to stop
     if not cap.isOpened():
-        raise SystemExit(\"Could not open camera \" + src)
+        raise SystemExit("Could not open camera " + src)
     try:
         while True:
             ok, frame = cap.read()
@@ -142,20 +142,20 @@ Copy `sample_predict.py` + the model file into your project, then:
 import cv2
 from sample_predict import predict
 
-frame = cv2.imread(\"photo.jpg\")           # or a frame from your camera
+frame = cv2.imread("photo.jpg")           # or a frame from your camera
 for d in predict(frame, conf=0.5):
-    print(d[\"name\"], d[\"conf\"])
-    if \"center\" in d:                      # detect / OBB only
-        x, y = d[\"center\"]                 # pixel coords — feed a robot arm / PLC directly
+    print(d["name"], d["conf"])
+    if "center" in d:                      # detect / OBB only
+        x, y = d["center"]                 # pixel coords — feed a robot arm / PLC directly
 ```
 
 Results are plain dicts:
 
 | Task | Structure per item |
 |---|---|
-| Detection | `{\"name\", \"conf\", \"center\": (x, y), \"box\": (x1, y1, x2, y2)}` |
-| OBB | `{\"name\", \"conf\", \"center\": (x, y), \"corners\": [(x, y) × 4]}` |
-| Classification | `{\"name\", \"conf\"}` (whole frame, one item) |
+| Detection | `{"name", "conf", "center": (x, y), "box": (x1, y1, x2, y2)}` |
+| OBB | `{"name", "conf", "center": (x, y), "corners": [(x, y) × 4]}` |
+| Classification | `{"name", "conf"}` (whole frame, one item) |
 
 ## 3. Publish results to MQTT → Node-RED / PLC
 
@@ -167,7 +167,7 @@ import paho.mqtt.client as mqtt
 from sample_predict import predict
 
 cli = mqtt.Client()
-cli.connect(\"localhost\", 1883)            # change to your MQTT broker's IP
+cli.connect("localhost", 1883)            # change to your MQTT broker's IP
 
 cap = cv2.VideoCapture(0)
 try:
@@ -176,7 +176,7 @@ try:
         if not ok:
             break
         for d in predict(frame, conf=0.5):
-            cli.publish(\"tesr/vision\", json.dumps(d))
+            cli.publish("tesr/vision", json.dumps(d))
 except KeyboardInterrupt:
     pass
 finally:
@@ -188,7 +188,7 @@ node gives you a ready-to-use message in your flow.
 
 ## Switching models
 
-Edit the `WEIGHTS = \"...\"` line in `sample_predict.py` to point at any other file
+Edit the `WEIGHTS = "..."` line in `sample_predict.py` to point at any other file
 (`best.pt`, `best.engine`, `best_ncnn_model`, `.onnx` — same code for all of them).
 
 ---
@@ -213,30 +213,30 @@ python sample_predict.py photo.jpg    # รูปเดี่ยว
 import cv2
 from sample_predict import predict
 
-frame = cv2.imread(\"photo.jpg\")           # หรือเฟรมจากกล้อง
+frame = cv2.imread("photo.jpg")           # หรือเฟรมจากกล้อง
 for d in predict(frame, conf=0.5):
-    print(d[\"name\"], d[\"conf\"])
-    if \"center\" in d:                      # detect / OBB เท่านั้น
-        x, y = d[\"center\"]                 # พิกัด pixel — ส่งให้แขนกล/PLC ได้เลย
+    print(d["name"], d["conf"])
+    if "center" in d:                      # detect / OBB เท่านั้น
+        x, y = d["center"]                 # พิกัด pixel — ส่งให้แขนกล/PLC ได้เลย
 ```
 
 ผลลัพธ์เป็น dict ธรรมดา:
 
 | โหมด | โครงสร้างต่อชิ้น |
 |---|---|
-| Detection | `{\"name\", \"conf\", \"center\": (x, y), \"box\": (x1, y1, x2, y2)}` |
-| OBB | `{\"name\", \"conf\", \"center\": (x, y), \"corners\": [(x, y) × 4]}` |
-| Classification | `{\"name\", \"conf\"}` (ทั้งเฟรม 1 รายการ) |
+| Detection | `{"name", "conf", "center": (x, y), "box": (x1, y1, x2, y2)}` |
+| OBB | `{"name", "conf", "center": (x, y), "corners": [(x, y) × 4]}` |
+| Classification | `{"name", "conf"}` (ทั้งเฟรม 1 รายการ) |
 
 ## 3. ส่งผลเข้า MQTT → Node-RED / PLC
 
-โค้ดเดียวกับตัวอย่างภาษาอังกฤษด้านบน — เปลี่ยน `\"localhost\"` เป็น IP ของ
+โค้ดเดียวกับตัวอย่างภาษาอังกฤษด้านบน — เปลี่ยน `"localhost"` เป็น IP ของ
 MQTT broker ของคุณ ฝั่ง Node-RED ใส่ node **mqtt in** subscribe topic
 `tesr/vision` + **json** node ก็ได้ข้อความพร้อมใช้ต่อใน flow ทันที
 
 ## เปลี่ยนโมเดล
 
-แก้บรรทัด `WEIGHTS = \"...\"` ใน `sample_predict.py` ให้ชี้ไฟล์ใหม่ได้เลย
+แก้บรรทัด `WEIGHTS = "..."` ใน `sample_predict.py` ให้ชี้ไฟล์ใหม่ได้เลย
 (`best.pt`, `best.engine`, `best_ncnn_model`, `.onnx` — โค้ดเดียวกันหมด)
 '''
 
