@@ -215,7 +215,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <span class="msg" id="dsMsg" style="margin:0"></span>
         </div>
         <div class="hint" id="dsHint">Your labeled photos as a ready-to-train YOLO dataset
-        (images + labels + data.yaml). Train it offline with <code>offline/3_train.py</code>
+        (images + labels + data.yaml). Train it offline with <code>yolo-trainer/train.py</code>
         from the repo for production-grade accuracy &mdash; your hand-drawn boxes are the labels,
         so no plain background is needed. Generated &#10024; photos are excluded; YOLO augments
         during training.</div>
@@ -311,6 +311,20 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download Model</button>
           <span class="msg" id="eMsg" style="margin:0"></span>
         </div>
+        <div class="note" id="projNote" style="margin-top:16px">
+          <b>Project file</b> &mdash; save all photos + labels as one <code>.zip</code> and
+          continue any time. <b>Add a new object later without redoing the old ones:</b>
+          load the project back, add the new class, capture its photos, press Train again
+          &mdash; then re-download the YOLO dataset so the offline model learns the new
+          class too.
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="quiet" onclick="saveProject()">&#128190; Save Project</button>
+          <button class="quiet" onclick="document.getElementById('projFile').click()">&#128194; Load Project</button>
+          <input type="file" id="projFile" accept=".zip" style="display:none"
+                 onchange="loadProject(this.files[0]); this.value='';">
+          <span class="msg" id="projMsg" style="margin:0"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -322,12 +336,12 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
 <div class="modal" id="lblModal">
   <div class="mbox">
     <h3 id="lblTitle">Draw a box around the object</h3>
-    <p class="sub" id="lblSub">Drag to draw a tight box &middot; <b>Scroll / Q / E</b> = rotate it to
-      follow a tilted object &middot; <b>R</b> = straighten &middot; <b>Enter</b> = save &amp; next
-      &middot; <b>X</b> = clear &middot; <b>Esc</b> = close</p>
+    <p class="sub" id="lblSub">Drag to draw a box &middot; drag a <b>corner/edge handle</b> to resize,
+      drag <b>inside</b> to move &middot; <b>Scroll / Q / E</b> = rotate &middot; <b>R</b> = straighten
+      &middot; <b>Enter</b> = confirm &amp; next &middot; <b>X</b> = clear &middot; <b>Esc</b> = close</p>
     <canvas id="lblCv" width="560" height="420"></canvas>
     <div class="row" style="margin-top:14px">
-      <button onclick="lblSaveNext()">&#10003; Save &amp; Next (Enter)</button>
+      <button onclick="lblSaveNext()">&#10003; Confirm &amp; Next (Enter)</button>
       <button class="quiet" onclick="lblClear()">Clear box (X)</button>
       <button class="quiet" onclick="lblNav(-1)">&#8592; Prev</button>
       <button class="quiet" onclick="lblNav(1)">Next &#8594;</button>
@@ -358,7 +372,7 @@ applyTheme(th);
 let LANG = 'en'; try{LANG = localStorage.getItem('tesr_lang') || 'en'}catch(e){}
 function t(en, th2){ return (LANG === 'th' && th2) ? th2 : en; }
 const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSub','augHint',
-                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub'];
+                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub','projNote'];
 function applyLang(){
   const TH = window.TH || {};
   document.getElementById('langBtn').textContent =
@@ -416,12 +430,12 @@ function setTask(t){
   document.getElementById('dsHint').innerHTML = t==='detect'
     ? window.t('Your labeled photos as a ready-to-train <b>YOLO detection dataset</b> (images + '
       + 'labels + data.yaml). Rotated boxes export as <b>YOLO OBB</b> automatically. Train it '
-      + 'offline with <code>offline/3_train.py</code> for production-grade boxes \u2014 your '
+      + 'offline with <code>yolo-trainer/train.py</code> for production-grade boxes \u2014 your '
       + 'hand-drawn boxes are the labels, so no plain background is needed. Generated \u2728 '
       + 'photos inherit their boxes and go to the train split (val stays real).',
       window.TH && TH.dsHintDetect)
     : window.t('Your photos as a ready-to-train <b>YOLO classification dataset</b> (one folder per '
-      + 'class). Train it offline with <code>offline/3_train.py</code> \u2014 the task is '
+      + 'class). Train it offline with <code>yolo-trainer/train.py</code> \u2014 the task is '
       + 'detected automatically. Generated \u2728 photos go to the train split (val stays real).',
       window.TH && TH.dsHintClassify);
   renderClasses();
@@ -733,17 +747,41 @@ function drawLbl(){
   const b = lblDrag || lblBox;
   if (b){
     const [cx, cy, w, h] = b, px = cx*cv.width, py = cy*cv.height;
-    x.save(); x.translate(px, py); x.rotate(boxAngle(b) * Math.PI/180);
+    const hw = w*cv.width/2, hh = h*cv.height/2, rad = boxAngle(b)*Math.PI/180;
+    x.save(); x.translate(px, py); x.rotate(rad);
     x.strokeStyle = '#d8484c'; x.lineWidth = 3;
-    x.strokeRect(-w*cv.width/2, -h*cv.height/2, w*cv.width, h*cv.height);
+    x.strokeRect(-hw, -hh, hw*2, hh*2);
+    // resize handles: 4 corners + 4 edge midpoints
+    x.fillStyle = '#d8484c';
+    for (const [sx, sy] of LBL_HANDLES){
+      x.fillRect(sx*hw - 5, sy*hh - 5, 10, 10);
+    }
     x.restore();
     x.strokeStyle = '#c9a84c'; x.lineWidth = 2;
     x.beginPath(); x.moveTo(px-10,py); x.lineTo(px+10,py);
     x.moveTo(px,py-10); x.lineTo(px,py+10); x.stroke();
+    x.fillStyle = '#c9a84c'; x.font = '13px Kanit, sans-serif';
     const a = Math.round(boxAngle(b));
-    if (a) { x.fillStyle = '#c9a84c'; x.font = '13px Kanit, sans-serif';
-             x.fillText(a + '\u00b0', px + 14, py - 8); }
+    if (a) x.fillText(a + '\u00b0', px + 14, py - 8);
+    if (lblImg) x.fillText(Math.round(w*lblImg.width) + '\u00d7'
+      + Math.round(h*lblImg.height) + ' px', px + 14, py + 20);
   }
+}
+const LBL_HANDLES = [[-1,-1],[1,-1],[-1,1],[1,1],[0,-1],[0,1],[-1,0],[1,0]];
+// hit-test a canvas point against the current box: {mode, handle} | null
+function lblHit(p){
+  if (!lblBox) return null;
+  const cv = document.getElementById('lblCv');
+  const [cx, cy, w, h] = lblBox, rad = boxAngle(lblBox)*Math.PI/180;
+  const dx = p[0]*cv.width - cx*cv.width, dy = p[1]*cv.height - cy*cv.height;
+  const lx =  dx*Math.cos(rad) + dy*Math.sin(rad);
+  const ly = -dx*Math.sin(rad) + dy*Math.cos(rad);
+  const hw = w*cv.width/2, hh = h*cv.height/2;
+  for (const [sx, sy] of LBL_HANDLES){
+    if (Math.hypot(lx - sx*hw, ly - sy*hh) <= 12) return {mode:'resize', handle:[sx,sy]};
+  }
+  if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) return {mode:'move', grab:[dx,dy]};
+  return null;
 }
 function lblPoint(ev){
   const cv = document.getElementById('lblCv');
@@ -752,21 +790,56 @@ function lblPoint(ev){
   return [Math.min(Math.max((t.clientX-r.left)/r.width,0),1),
           Math.min(Math.max((t.clientY-r.top)/r.height,0),1)];
 }
-let lblStart = null;
-function lblDown(ev){ ev.preventDefault(); lblStart = lblPoint(ev); lblDrag = null; }
-function lblMove(ev){
-  if (!lblStart) return;
+let lblStart = null, lblMode = 'draw', lblHandle = null, lblGrab = null, lblBox0 = null;
+function lblDown(ev){
   ev.preventDefault();
-  const p = lblPoint(ev);
-  const x1 = Math.min(lblStart[0], p[0]), x2 = Math.max(lblStart[0], p[0]);
-  const y1 = Math.min(lblStart[1], p[1]), y2 = Math.max(lblStart[1], p[1]);
-  lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, lblBox ? boxAngle(lblBox) : 0]);
+  lblStart = lblPoint(ev); lblDrag = null;
+  const hit = lblHit(lblStart);
+  lblMode = hit ? hit.mode : 'draw';
+  lblHandle = hit && hit.handle ? hit.handle : null;
+  lblGrab = hit && hit.grab ? hit.grab : null;
+  lblBox0 = lblBox ? lblBox.slice() : null;
+}
+function lblMove(ev){
+  const cv = document.getElementById('lblCv');
+  if (!lblStart){                       // hover feedback only
+    const hit = lblBox ? lblHit(lblPoint(ev)) : null;
+    cv.style.cursor = hit ? (hit.mode === 'move' ? 'move' : 'pointer') : 'crosshair';
+    return;
+  }
+  ev.preventDefault();
+  const p = lblPoint(ev), W = cv.width, H = cv.height;
+  if (lblMode === 'move' && lblBox0){
+    lblDrag = clampBox([p[0] - lblGrab[0]/W, p[1] - lblGrab[1]/H,
+                        lblBox0[2], lblBox0[3], boxAngle(lblBox0)]);
+  } else if (lblMode === 'resize' && lblBox0){
+    const [cx, cy, w0, h0] = lblBox0, rad = boxAngle(lblBox0)*Math.PI/180;
+    const dx = p[0]*W - cx*W, dy = p[1]*H - cy*H;
+    const lx =  dx*Math.cos(rad) + dy*Math.sin(rad);
+    const ly = -dx*Math.sin(rad) + dy*Math.cos(rad);
+    const hw = w0*W/2, hh = h0*H/2, [sx, sy] = lblHandle, MIN = 8;
+    let nw = hw*2, nh = hh*2, lcx = 0, lcy = 0;      // canvas px + local center shift
+    if (sx){ nw = Math.max(MIN, sx === 1 ? lx + hw : hw - lx);
+             lcx = sx === 1 ? (lx - hw)/2 : (lx + hw)/2;
+             if (nw === MIN) lcx = sx * (MIN/2 - hw); }
+    if (sy){ nh = Math.max(MIN, sy === 1 ? ly + hh : hh - ly);
+             lcy = sy === 1 ? (ly - hh)/2 : (ly + hh)/2;
+             if (nh === MIN) lcy = sy * (MIN/2 - hh); }
+    const ddx = lcx*Math.cos(rad) - lcy*Math.sin(rad);
+    const ddy = lcx*Math.sin(rad) + lcy*Math.cos(rad);
+    lblDrag = clampBox([cx + ddx/W, cy + ddy/H, nw/W, nh/H, boxAngle(lblBox0)]);
+  } else {                              // draw a fresh box
+    const x1 = Math.min(lblStart[0], p[0]), x2 = Math.max(lblStart[0], p[0]);
+    const y1 = Math.min(lblStart[1], p[1]), y2 = Math.max(lblStart[1], p[1]);
+    lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, lblBox ? boxAngle(lblBox) : 0]);
+  }
   drawLbl();
 }
 function lblUp(ev){
   if (!lblStart) return;
   if (lblDrag) lblBox = lblDrag;
-  lblStart = null; lblDrag = null; drawLbl();
+  lblStart = null; lblDrag = null; lblMode = 'draw'; lblHandle = null; lblGrab = null;
+  drawLbl();
 }
 function lblClear(){ lblBox = null; lblDrag = null; drawLbl(); }
 function lblSaveNext(){
@@ -819,6 +892,76 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
     else if (ev.key === 'ArrowLeft') lblNav(-1);
     else if (ev.key === 'ArrowRight') lblNav(1);
   });
+}
+
+/* ============ project save / load (continue later, add classes later) ============ */
+async function saveProject(){
+  const m = document.getElementById('projMsg');
+  const real = classes.reduce((n,c)=>n + c.examples.filter(e=>!e.aug).length, 0);
+  if (!real){ m.textContent = 'Nothing to save yet \u2014 collect some photos first.'; return; }
+  m.textContent = 'Building project zip...';
+  try{
+    const zip = new JSZip();
+    const meta = {app:'tesr-ai-vision', version:1, task, classes:[]};
+    classes.forEach((c,ci)=>{
+      const mc = {name:c.name, examples:[]};
+      c.examples.forEach((e,ei)=>{
+        if (e.aug) return;                       // \u2728 images are regenerated, not stored
+        const f = 'images/' + ci + '_' + ei + '.jpg';
+        zip.file('project/' + f, e.src.split(',')[1], {base64:true});
+        mc.examples.push({file:f, box:e.box || null, w:e.w, h:e.h});
+      });
+      meta.classes.push(mc);
+    });
+    zip.file('project/project.json', JSON.stringify(meta));
+    const blob = await zip.generateAsync({type:'blob'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tesr-project.zip';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    m.textContent = 'Saved ' + real + ' photos in tesr-project.zip \u2014 load it any time to continue.';
+  }catch(err){ m.textContent = 'Save failed: ' + err.message; }
+}
+async function loadProject(file){
+  const m = document.getElementById('projMsg');
+  if (!file) return;
+  if (!net){ m.textContent = 'Backbone still loading \u2014 wait a moment, then load again.'; return; }
+  m.textContent = 'Reading project...';
+  try{
+    const zip = await JSZip.loadAsync(file);
+    const pj = zip.file('project/project.json');
+    if (!pj) throw new Error('not a TESR project zip (project.json missing)');
+    const meta = JSON.parse(await pj.async('string'));
+    if (meta.task && meta.task !== task) setTask(meta.task);
+    const total = meta.classes.reduce((n,c)=>n + c.examples.length, 0);
+    let done = 0;
+    const out = [];
+    for (const mc of meta.classes){
+      const c = {name:mc.name, examples:[]};
+      for (const ex of mc.examples){
+        const zf = zip.file('project/' + ex.file);
+        if (!zf) continue;
+        const src = 'data:image/jpeg;base64,' + await zf.async('base64');
+        const img = new Image();
+        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
+        const cv2 = document.createElement('canvas');
+        cv2.width = 224; cv2.height = 224;
+        cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
+        const f = embed(cv2);
+        c.examples.push({feat: await f.array(), thumb: shrink(cv2), src,
+                         w: ex.w || img.width, h: ex.h || img.height,
+                         box: ex.box || null});
+        f.dispose();
+        done++;
+        if (done % 5 === 0){ m.textContent = 'Loading... ' + done + '/' + total; await tf.nextFrame(); }
+      }
+      out.push(c);
+    }
+    classes = out;
+    renderClasses();
+    m.textContent = 'Loaded ' + done + ' photos in ' + out.length
+      + ' classes \u2014 add a new class if you want, then press Train.';
+  }catch(err){ m.textContent = 'Load failed: ' + err.message; }
 }
 
 /* ============ augmentation ============ */
@@ -1209,22 +1352,22 @@ It already has the correct YOLO layout for its task:
 Generated (augmented) photos, when included, are in train/ ONLY -
 val/ contains real photos, so validation metrics stay honest.
 
-1. Get the offline trainer (one time):
-   https://github.com/TESR-Channel/AI_vision_Trainer/tree/main/offline
-2. Put this "dataset" folder NEXT TO the offline scripts
-   (same place as 3_train.py).
+1. Get the YOLO trainer (one time):
+   https://github.com/TESR-Channel/AI_vision_Trainer/tree/main/yolo-trainer
+2. Put this "dataset" folder NEXT TO the yolo-trainer scripts
+   (same place as train.py).
 3. Install once (Python 3.10-3.12):
        pip install -r requirements.txt
 4. Train (the task is detected automatically):
-       python 3_train.py
+       python train.py
 5. Run live (the model remembers its task):
-       python 4_run.py
+       python run.py
 6. Deploy to an edge device - run the export ON THIS COMPUTER:
-       python 5_export.py --target pi
+       python export.py --target pi
    then copy the exported model + sample_predict.py to the Pi/Jetson.
 
 GPU (NVIDIA) trains in minutes; CPU also works, just slower.
-Paths inside the dataset are fixed automatically by 3_train.py,
+Paths inside the dataset are fixed automatically by train.py,
 so this zip works anywhere.
 `;
 async function exportDataset(){
