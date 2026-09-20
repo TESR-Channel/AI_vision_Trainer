@@ -183,6 +183,20 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <h2>2 &middot; Classes</h2>
     <p class="sub" id="clsSub">What should the AI learn to tell apart? At least 2 classes &mdash; and adding a
     "background" class of your empty scene makes the "none" answer much more reliable.</p>
+    <div class="row" style="margin-bottom:6px">
+      <button class="quiet" onclick="document.getElementById('projFile').click()">&#128194; Load Project</button>
+      <button class="quiet" onclick="saveProject()">&#128190; Save Project</button>
+      <input type="file" id="projFile" accept=".zip" style="display:none"
+             onchange="loadProject(this.files[0]); this.value='';">
+      <span class="msg" id="projMsg" style="margin:0"></span>
+    </div>
+    <div class="hint" id="projNote" style="margin-bottom:14px">
+      <b>Project file</b> &mdash; save all photos + labels as one <code>.zip</code> and
+      continue any time. <b>Add a new object later without redoing the old ones:</b>
+      load the project back, add the new class, capture its photos, press Train again
+      &mdash; then re-download the YOLO dataset so the offline model learns the new
+      class too.
+    </div>
     <div class="row">
       <input type="text" id="newCls" placeholder="Class name, e.g. jetson_board" style="width:260px">
       <button class="gold" onclick="addClass()">+ Add Class</button>
@@ -310,20 +324,6 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="row" style="margin-top:14px">
           <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download Model</button>
           <span class="msg" id="eMsg" style="margin:0"></span>
-        </div>
-        <div class="note" id="projNote" style="margin-top:16px">
-          <b>Project file</b> &mdash; save all photos + labels as one <code>.zip</code> and
-          continue any time. <b>Add a new object later without redoing the old ones:</b>
-          load the project back, add the new class, capture its photos, press Train again
-          &mdash; then re-download the YOLO dataset so the offline model learns the new
-          class too.
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button class="quiet" onclick="saveProject()">&#128190; Save Project</button>
-          <button class="quiet" onclick="document.getElementById('projFile').click()">&#128194; Load Project</button>
-          <input type="file" id="projFile" accept=".zip" style="display:none"
-                 onchange="loadProject(this.files[0]); this.value='';">
-          <span class="msg" id="projMsg" style="margin:0"></span>
         </div>
       </div>
     </div>
