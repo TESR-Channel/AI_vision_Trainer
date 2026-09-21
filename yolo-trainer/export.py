@@ -23,6 +23,7 @@ The exported model runs with the SAME runner:
     python run.py --weights <exported model> [--headless]
 """
 import argparse
+import platform
 from pathlib import Path
 
 TARGETS = {
@@ -272,7 +273,15 @@ def main():
     fmt, note = TARGETS[args.target]
     print("Target: %s  |  format: %s\n%s" % (args.target, fmt, note))
     if args.target == "jetson":
-        print("\nNOTE: run this ON the Jetson - an .engine built on a PC will NOT load there.\n")
+        if not (platform.system() == "Linux" and platform.machine() == "aarch64"):
+            raise SystemExit(
+                "\nSTOP: --target jetson must run ON the Jetson itself.\n"
+                "A TensorRT .engine is compiled for the exact GPU that builds it -\n"
+                "one built on this computer will NOT load on the Jetson.\n\n"
+                "Nothing to export here for Jetson: copy best.pt + run.py to the\n"
+                "Jetson (see README, Jetson section), install once there, then run\n"
+                "    python3 export.py --target jetson")
+        print("\nBuilding the TensorRT engine on this Jetson - takes a few minutes...\n")
 
     from ultralytics import YOLO
 
