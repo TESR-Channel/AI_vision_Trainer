@@ -62,6 +62,10 @@ def main():
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--model", default=None,
                     help="override the auto model choice, e.g. yolov8s.pt")
+    ap.add_argument("--batch", type=int, default=16,
+                    help="lower to 8 if the GPU runs out of memory")
+    ap.add_argument("--device", default=None,
+                    help="0 = first GPU, cpu = force CPU (default: auto)")
     args = ap.parse_args()
 
     data_dir = Path(args.data)
@@ -78,7 +82,8 @@ def main():
     from ultralytics import YOLO
 
     model = YOLO(model_name)
-    results = model.train(data=data_arg, epochs=args.epochs, imgsz=args.imgsz)
+    results = model.train(data=data_arg, epochs=args.epochs, imgsz=args.imgsz,
+                          batch=args.batch, device=args.device)
 
     best = Path(results.save_dir) / "weights" / "best.pt"
     if best.exists():
