@@ -169,6 +169,9 @@ sudo apt update && sudo apt install -y python3-pip
 pip install ultralytics --break-system-packages
 pip uninstall -y torch torchvision --break-system-packages
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130 --break-system-packages
+
+# for the TensorRT export (Step 5) - preinstall these (AutoUpdate cannot, PEP 668):
+pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages
 ```
 
 **JetPack 6 (R36.x — Ubuntu 22.04, Python 3.10).** Commands from the
@@ -229,8 +232,14 @@ python3 export.py --target jetson             # -> best.engine (FP16, takes a fe
 python3 run.py --weights best.engine
 ```
 
-If the export fails with `No module named 'tensorrt'`, install the JetPack
-components first: `sudo apt install nvidia-jetpack`, then retry.
+If the export fails:
+
+- `No module named 'onnx'` — AutoUpdate is blocked by PEP 668 on JetPack 7;
+  preinstall: `pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages`
+  (if onnxruntime-gpu has no wheel for your Python, use the cp-matching wheel
+  from the [Ultralytics Jetson guide](https://docs.ultralytics.com/guides/nvidia-jetson))
+- `No module named 'tensorrt'` — install the JetPack components:
+  `sudo apt install nvidia-jetpack`, then retry.
 
 > Prefer zero setup? The Ultralytics Docker image has everything preinstalled:
 > `t=ultralytics/ultralytics:latest-jetson-jetpack6` then
@@ -341,6 +350,7 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
      (ผ่าน SSH เติม `--headless` จะพิมพ์ FPS เป็นระยะ)
   5. **เร็วสุดบน Jetson = TensorRT**: `python3 export.py --target jetson` **บนตัว Jetson**
      → ได้ `best.engine` → `python3 run.py --weights best.engine` (เทียบ FPS กับ best.pt ได้เลย
+     · ถ้าขึ้น `No module named 'onnx'` (JP7): `pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages`
      · ถ้าขึ้น `No module named 'tensorrt'` ให้ `sudo apt install nvidia-jetpack` ก่อน)
 - `--headless` พิมพ์ `name center=(x, y)px conf=...` ผ่าน SSH — ส่งต่อเข้า
   MQTT/Node-RED/PLC ได้ทันที ใช้ได้ทุกโหมด
