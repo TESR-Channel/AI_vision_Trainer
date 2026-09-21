@@ -131,21 +131,79 @@ USB webcams work out of the box. Too slow? Re-export with `--imgsz 320`.
 Real FPS depends on the Pi model, input size and class count — **measure on
 the real device before deciding**.
 
-### NVIDIA Jetson Orin Nano (JetPack 6)
+### NVIDIA Jetson Orin Nano (JetPack 6) — step by step
+
+Different from the Pi in two ways: **no export needed first** (`best.pt` runs on
+the Jetson GPU directly), and PyTorch **must be NVIDIA's Jetson wheel** — the
+regular `pip install torch` cannot use the Jetson GPU.
+
+**Step 1 — copy these to the Jetson** (e.g. into `/home/<user>/yolo-trainer/`):
+
+| Copy this | Why |
+|---|---|
+| `best.pt` | the trained model — runs on the GPU as-is |
+| `run.py` | the live demo |
+| `export.py` *(optional)* | only for the TensorRT speed-up in Step 5 |
+| `sample_predict.py` *(optional)* | only if you will write your own code |
+
+**Step 2 — on the Jetson, install once** (commands from the
+[Ultralytics Jetson guide](https://docs.ultralytics.com/guides/nvidia-jetson) for JetPack 6):
 
 ```bash
-# Copy to the Jetson: best.pt, run.py, sample_predict.py
-# On the Jetson (PyTorch must be NVIDIA's wheel or the ultralytics Docker image):
-python run.py --weights best.pt --headless    # runs on the GPU directly
+sudo apt update
+sudo apt install -y python3-pip
+pip install -U pip
+pip install ultralytics
+sudo reboot
+
+# pip's torch/torchvision cannot use the Jetson GPU - replace with NVIDIA's wheels:
+pip uninstall -y torch torchvision
+pip install https://github.com/ultralytics/assets/releases/download/v0.0.0/torch-2.10.0-cp310-cp310-linux_aarch64.whl
+pip install https://github.com/ultralytics/assets/releases/download/v0.0.0/torchvision-0.25.0-cp310-cp310-linux_aarch64.whl
+
+# dependency fix for torch 2.10 on JetPack 6 (cuDSS):
+wget https://developer.download.nvidia.com/compute/cudss/0.7.1/local_installers/cudss-local-tegra-repo-ubuntu2204-0.7.1_0.7.1-1_arm64.deb
+sudo dpkg -i cudss-local-tegra-repo-ubuntu2204-0.7.1_0.7.1-1_arm64.deb
+sudo cp /var/cudss-local-tegra-repo-ubuntu2204-0.7.1/cudss-*-keyring.gpg /usr/share/keyrings/
+sudo apt-get update && sudo apt-get -y install cudss
 ```
 
-`--headless` prints `name center=(x, y)px conf=...` to the console over SSH —
-ready to pipe into MQTT / Node-RED / a PLC. Works for every task.
+Verify — must print `True`:
 
-> **Optional speed-up (advanced):** on the Jetson itself,
-> `python export.py --target jetson` builds a TensorRT FP16 engine.
-> A `.engine` only runs on the machine that built it — that is why the main
-> path simply copies `best.pt`.
+```bash
+python3 -c "import torch; print(torch.cuda.is_available())"
+```
+
+(Wheel versions above track the Ultralytics guide for JetPack 6.1 — if a link
+404s later, take the current ones from that guide.)
+
+**Step 3 — full speed** (all cores + max clocks, run after every boot or add to startup):
+
+```bash
+sudo nvpmodel -m 0
+sudo jetson_clocks
+```
+
+**Step 4 — run:**
+
+```bash
+cd ~/yolo-trainer
+python3 run.py --weights best.pt              # window with box + center, q to quit
+python3 run.py --weights best.pt --headless   # over SSH: prints name center=(x, y)px conf=...
+```
+
+**Step 5 — optional TensorRT speed-up** (build **on the Jetson itself** — an
+`.engine` only runs on the machine that built it):
+
+```bash
+python3 export.py --target jetson             # -> best.engine (FP16, takes a few minutes)
+python3 run.py --weights best.engine
+```
+
+> Prefer zero setup? The Ultralytics Docker image has everything preinstalled:
+> `t=ultralytics/ultralytics:latest-jetson-jetpack6` then
+> `sudo docker run -it --ipc=host --runtime=nvidia -v ~/yolo-trainer:/ws --device /dev/video0 $t`
+> and inside: `cd /ws && python3 run.py --weights best.pt --headless`
 
 ## Troubleshooting
 
@@ -229,9 +287,17 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
      `python run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
      center (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
   (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
-- **Jetson Orin Nano:** ก๊อป `best.pt` + สคริปต์ไปที่ Jetson (PyTorch ต้องเป็น wheel
-  ของ NVIDIA หรือ Docker ของ ultralytics) → `python run.py --weights best.pt --headless`
-  รันบน GPU ได้เลย
+- **Jetson Orin Nano (JetPack 6) ทีละขั้น** — ต่างจาก Pi ตรงที่**ไม่ต้อง export ก่อน**
+  (`best.pt` รันบน GPU ของ Jetson ได้เลย) แต่ PyTorch **ต้องเป็น wheel ของ NVIDIA เท่านั้น**:
+  1. ก๊อปไป Jetson: `best.pt`, `run.py` (+ `export.py` ถ้าจะทำ TensorRT, `sample_predict.py` ถ้าจะเขียนโค้ดเอง)
+  2. ติดตั้งครั้งเดียว (คำสั่งจากคู่มือ Ultralytics สำหรับ JetPack 6 — ดู block ภาษาอังกฤษด้านบน):
+     `pip install ultralytics` → reboot → `pip uninstall -y torch torchvision` →
+     ลง torch/torchvision wheel ของ NVIDIA → ลง cuDSS →
+     เช็ค `python3 -c "import torch; print(torch.cuda.is_available())"` ต้องได้ `True`
+  3. เร่งเต็มสปีด: `sudo nvpmodel -m 0` และ `sudo jetson_clocks` (รันใหม่หลังเปิดเครื่องทุกครั้ง)
+  4. รัน: `cd ~/yolo-trainer` → `python3 run.py --weights best.pt` (ผ่าน SSH เติม `--headless`)
+  5. อยากเร็วขึ้นอีก: `python3 export.py --target jetson` **บนตัว Jetson** → ได้ `best.engine`
+     → `python3 run.py --weights best.engine`
 - `--headless` พิมพ์ `name center=(x, y)px conf=...` ผ่าน SSH — ส่งต่อเข้า
   MQTT/Node-RED/PLC ได้ทันที ใช้ได้ทุกโหมด
 
