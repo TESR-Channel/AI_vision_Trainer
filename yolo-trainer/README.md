@@ -68,7 +68,8 @@ The task is detected automatically — no flags to remember:
 
 `run.py` shows an **always-on status line**: how many objects passed the
 threshold, or the best candidate below it with a suggested `--conf` — a silent
-run never happens.
+run never happens. A **live FPS counter** shows top-right (printed periodically
+with `--headless`), so you always see the real speed on the real device.
 
 ## Deploy to the edge device
 
@@ -76,6 +77,13 @@ run never happens.
 also writes **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** next to the
 model — a `predict(frame)` function returning plain dicts (name, conf, center,
 box/corners) for all tasks, plus an MQTT → Node-RED example.
+
+**Which path for your device:**
+
+| Device | On your computer | On the device | Fastest option |
+|---|---|---|---|
+| Raspberry Pi | `python export.py --target pi` | copy `best_ncnn_model/` + run | re-export with `--imgsz 320` |
+| Jetson | nothing — just copy `best.pt` | runs on the GPU as-is | TensorRT: `export.py --target jetson` on the Jetson |
 
 ### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit) — tested working
 
@@ -123,7 +131,7 @@ cd ~/yolo-trainer
 python run.py --weights best_ncnn_model
 ```
 
-A window opens with the box, center crosshair and the status line — press `q`
+A window opens with the box, center crosshair, status line and live FPS — press `q`
 to quit. Working over SSH with no screen? Add `--headless` and it prints
 `name center=(x, y)px conf=...` to the console instead.
 
@@ -153,7 +161,7 @@ the install commands are different:
 cat /etc/nv_tegra_release        # R36.x = JetPack 6 · R39.x = JetPack 7
 ```
 
-**JetPack 7 (R39.x — Ubuntu 24.04, Python 3.12).** Ubuntu 24.04 locks pip
+**JetPack 7 (R39.x — Ubuntu 24.04, Python 3.12) — tested working.** Ubuntu 24.04 locks pip
 (PEP 668), so add `--break-system-packages` to every pip command:
 
 ```bash
@@ -207,17 +215,22 @@ sudo jetson_clocks
 
 ```bash
 cd ~/yolo-trainer
-python3 run.py --weights best.pt              # window with box + center, q to quit
-python3 run.py --weights best.pt --headless   # over SSH: prints name center=(x, y)px conf=...
+python3 run.py --weights best.pt              # window: box + center + live FPS, q to quit
+python3 run.py --weights best.pt --headless   # over SSH: prints results + FPS periodically
 ```
 
-**Step 5 — optional TensorRT speed-up** (build **on the Jetson itself** — an
-`.engine` only runs on the machine that built it):
+**Step 5 — TensorRT: the fastest way to run on Jetson** (optional; build
+**on the Jetson itself** — an `.engine` only runs on the machine that built it).
+`best.pt` on the GPU is already fast; the FP16 engine is faster still — compare
+with the on-screen FPS counter:
 
 ```bash
 python3 export.py --target jetson             # -> best.engine (FP16, takes a few minutes)
 python3 run.py --weights best.engine
 ```
+
+If the export fails with `No module named 'tensorrt'`, install the JetPack
+components first: `sudo apt install nvidia-jetpack`, then retry.
 
 > Prefer zero setup? The Ultralytics Docker image has everything preinstalled:
 > `t=ultralytics/ultralytics:latest-jetson-jetpack6` then
@@ -279,13 +292,20 @@ python export.py --target pi   # แพ็กสำหรับ Edge (รัน 
 
 ตัวกำหนดโหมดคือ Task ที่เลือกบนเว็บก่อนกด Download — `train.py` อ่านจากโครงสร้าง
 dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอียง, โฟลเดอร์ต่อคลาส = classify)
-และ `run.py` มีบรรทัดสถานะบนจอตลอด จะไม่มีการรันแบบ "เงียบ"
+และ `run.py` มีบรรทัดสถานะบนจอตลอด + **FPS โชว์มุมขวาบน** จะไม่มีการรันแบบ "เงียบ"
 
 ## Deploy ลง Edge
 
 **Export บนคอมพิวเตอร์** แล้วก๊อปผลลัพธ์ไปที่เครื่อง — `export.py` แถม
 **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** ให้ทุกครั้ง: ฟังก์ชัน
 `predict(frame)` คืน dict พร้อมใช้ + ตัวอย่าง MQTT → Node-RED
+
+**เลือกเส้นทางตามอุปกรณ์:**
+
+| อุปกรณ์ | บนคอมพิวเตอร์ | บนอุปกรณ์ | เร็วสุด |
+|---|---|---|---|
+| Raspberry Pi | `python export.py --target pi` | ก๊อป `best_ncnn_model/` + รัน | re-export `--imgsz 320` |
+| Jetson | ไม่ต้อง export — ก๊อป `best.pt` | รันบน GPU ได้เลย | TensorRT: `export.py --target jetson` บนตัว Jetson |
 
 - **Raspberry Pi 4/5 (ทดสอบแล้วใช้ได้จริง):**
   1. บนคอมพิวเตอร์: `python export.py --target pi` → ได้ `best_ncnn_model/`
@@ -304,12 +324,12 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
   4. รัน (เปิด Terminal ใหม่ต้อง activate ก่อนทุกครั้ง):
      `source ~/yolo-env/bin/activate` → `cd ~/yolo-trainer` →
      `python run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
-     center (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
+     center + FPS มุมขวาบน (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
   (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
 - **Jetson Orin Nano (JetPack 6 / 7) ทีละขั้น** — ต่างจาก Pi ตรงที่**ไม่ต้อง export ก่อน**
   (`best.pt` รันบน GPU ของ Jetson ได้เลย) แต่ PyTorch **ต้องเป็น wheel ของ NVIDIA เท่านั้น**:
   1. ก๊อปไป Jetson: `best.pt`, `run.py` (+ `export.py` ถ้าจะทำ TensorRT, `sample_predict.py` ถ้าจะเขียนโค้ดเอง)
-  2. เช็ครุ่นก่อน: `cat /etc/nv_tegra_release` — **R39.x = JetPack 7** (Ubuntu 24.04/Python 3.12
+  2. เช็ครุ่นก่อน: `cat /etc/nv_tegra_release` — **R39.x = JetPack 7 — ทดสอบแล้วใช้ได้จริง** (Ubuntu 24.04/Python 3.12
      ทุกคำสั่ง pip ต้องเติม `--break-system-packages`): `pip install ultralytics` →
      `pip uninstall -y torch torchvision` →
      `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130`
@@ -317,9 +337,11 @@ dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอี�
      · เช็ค `python3 -c "import torch; print(torch.cuda.is_available())"` ต้องได้ `True`
      (ถ้า wheel ขึ้น "not a supported wheel" = รัน block ผิดรุ่น JetPack)
   3. เร่งเต็มสปีด: `sudo nvpmodel -m 0` และ `sudo jetson_clocks` (รันใหม่หลังเปิดเครื่องทุกครั้ง)
-  4. รัน: `cd ~/yolo-trainer` → `python3 run.py --weights best.pt` (ผ่าน SSH เติม `--headless`)
-  5. อยากเร็วขึ้นอีก: `python3 export.py --target jetson` **บนตัว Jetson** → ได้ `best.engine`
-     → `python3 run.py --weights best.engine`
+  4. รัน: `cd ~/yolo-trainer` → `python3 run.py --weights best.pt` — มี FPS โชว์มุมขวาบน
+     (ผ่าน SSH เติม `--headless` จะพิมพ์ FPS เป็นระยะ)
+  5. **เร็วสุดบน Jetson = TensorRT**: `python3 export.py --target jetson` **บนตัว Jetson**
+     → ได้ `best.engine` → `python3 run.py --weights best.engine` (เทียบ FPS กับ best.pt ได้เลย
+     · ถ้าขึ้น `No module named 'tensorrt'` ให้ `sudo apt install nvidia-jetpack` ก่อน)
 - `--headless` พิมพ์ `name center=(x, y)px conf=...` ผ่าน SSH — ส่งต่อเข้า
   MQTT/Node-RED/PLC ได้ทันที ใช้ได้ทุกโหมด
 

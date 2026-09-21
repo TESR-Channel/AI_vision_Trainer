@@ -7,6 +7,8 @@ Works with every task - it reads the task from best.pt automatically:
 
 A status line on screen always tells you what is happening - including the
 best candidate BELOW your confidence threshold, so "no answer" is never silent.
+A live FPS counter shows top-right of the window (printed periodically in
+--headless) - measure real speed on the real device.
 
 Usage:
     python run.py                        # live webcam, press q to quit
@@ -18,6 +20,7 @@ Detection prints "name center=(x, y)px conf=..." - the numbers a robot arm,
 conveyor PLC, or MQTT pipeline needs.
 """
 import argparse
+import time
 from pathlib import Path
 
 import cv2
@@ -152,6 +155,7 @@ def main():
                          "app using the camera" % args.source)
     if args.headless:
         print("Headless mode - Ctrl+C to stop")
+    fps, t_prev, n_frames = 0.0, time.time(), 0
     try:
         while True:
             ok, frame = cap.read()
@@ -160,7 +164,17 @@ def main():
             for ln in annotate(frame, model(frame, conf=floor, verbose=False)[0],
                                task, args.conf):
                 print(ln)
-            if not args.headless:
+            now = time.time()                      # end-to-end FPS (camera + AI + draw)
+            if now > t_prev:
+                inst = 1.0 / (now - t_prev)
+                fps = inst if fps == 0.0 else 0.9 * fps + 0.1 * inst
+            t_prev = now
+            n_frames += 1
+            if args.headless:
+                if n_frames % 30 == 0:
+                    print("FPS: %.1f" % fps)
+            else:
+                _label(frame, "%.1f FPS" % fps, frame.shape[1] - 130, 24, COLOR)
                 cv2.imshow("TESR YOLO - press q to quit", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
