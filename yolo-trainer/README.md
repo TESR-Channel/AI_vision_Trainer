@@ -23,6 +23,29 @@ pip install -r requirements.txt
 
 An NVIDIA GPU trains in minutes; CPU also works, just slower — same result.
 
+### Faster training on an NVIDIA GPU (Windows)
+
+On Windows, `pip install ultralytics` pulls the **CPU-only** PyTorch. Switch to
+the CUDA build (no separate CUDA Toolkit needed — a recent NVIDIA driver is
+enough):
+
+```bash
+venv\Scripts\activate
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
+
+Verify — must print `True` (if not, redo the install; if cu126 fails, try `cu124`):
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+Then `python train.py` uses the GPU automatically — the `GPU_mem` column in the
+training log shows real usage (e.g. `1.98G`) instead of `0G`. Force it with
+`--device 0` if needed. On a 6 GB card, use `--batch 8` or `--imgsz 480` if you
+hit CUDA out-of-memory.
+
 ## The steps
 
 ```bash
@@ -151,6 +174,19 @@ ready to pipe into MQTT / Node-RED / a PLC. Works for every task.
 
 Python **3.10–3.12** → `python -m venv venv` → activate → `pip install -r requirements.txt`
 มี GPU NVIDIA เทรนไม่กี่นาที · CPU ก็ได้ ช้ากว่าแต่ผลเท่ากัน
+
+**ใช้ GPU NVIDIA เทรนเร็วขึ้น (Windows):** pip ปกติติด PyTorch แบบ CPU เท่านั้น
+ต้องเปลี่ยนเป็นตัว CUDA (ไม่ต้องลง CUDA Toolkit แยก ขอแค่ NVIDIA driver รุ่นใหม่):
+
+```bash
+venv\Scripts\activate
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
+
+เช็คด้วย `python -c "import torch; print(torch.cuda.is_available())"` ต้องได้ `True`
+แล้ว `python train.py` จะใช้ GPU อัตโนมัติ (คอลัมน์ `GPU_mem` ใน log ต้องไม่ใช่ `0G`)
+· การ์ด 6 GB ถ้า out-of-memory ให้ใช้ `--batch 8` หรือ `--imgsz 480`
 
 ## ขั้นตอน
 
