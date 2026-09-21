@@ -1,7 +1,7 @@
 # TESR YOLO Trainer — from web dataset to a deployed edge model
 
 **One path. No detours.** Collect and label on the [web trainer](https://tesr-channel.github.io/AI_vision_Trainer/),
-train and export **on your computer**, then copy the finished model to the edge device.
+train on your computer, deploy to the edge device.
 
 ```text
 🌐 Web page              💻 Your computer                  📦 Edge device
@@ -11,175 +11,117 @@ collect + label   →   train.py → run.py → export.py   →   copy model →
 
 *(ภาษาไทยด้านล่าง / Thai version below)*
 
-## Install once (on your computer)
-
-Python **3.10–3.12**:
+## 1 · Train on your computer
 
 ```bash
 python -m venv venv
 # Windows: venv\Scripts\activate      Linux/macOS: source venv/bin/activate
 pip install -r requirements.txt
+
+# unzip "Download Dataset (YOLO)" from the web page, put dataset/ next to train.py, then:
+python train.py                # auto-detects detect / rotated (OBB) / classify -> best.pt
+python run.py --conf 0.25      # test with your webcam - live FPS shows top-right
 ```
 
-An NVIDIA GPU trains in minutes; CPU also works, just slower — same result.
+`run.py` always shows a status line (what was found, or the best near-miss with
+a suggested `--conf`) — a silent run never happens.
 
-### Faster training on an NVIDIA GPU (Windows)
+<details><summary><b>⚡ Faster training on an NVIDIA GPU (Windows)</b></summary>
 
-On Windows, `pip install ultralytics` pulls the **CPU-only** PyTorch. Switch to
-the CUDA build (no separate CUDA Toolkit needed — a recent NVIDIA driver is
-enough):
+Plain pip installs the **CPU-only** PyTorch. Switch to the CUDA build
+(no CUDA Toolkit needed — a recent NVIDIA driver is enough):
 
 ```bash
-venv\Scripts\activate
 pip uninstall -y torch torchvision
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+python -c "import torch; print(torch.cuda.is_available())"    # must print True
 ```
 
-Verify — must print `True` (if not, redo the install; if cu126 fails, try `cu124`):
+`train.py` then uses the GPU automatically — `GPU_mem` in the training log must
+not be `0G`. On a 6 GB card, use `--batch 8` or `--imgsz 480` if you hit CUDA
+out-of-memory. If cu126 fails to install, try `cu124`.
+</details>
 
-```bash
-python -c "import torch; print(torch.cuda.is_available())"
-```
-
-Then `python train.py` uses the GPU automatically — the `GPU_mem` column in the
-training log shows real usage (e.g. `1.98G`) instead of `0G`. Force it with
-`--device 0` if needed. On a 6 GB card, use `--batch 8` or `--imgsz 480` if you
-hit CUDA out-of-memory.
-
-## The steps
-
-```bash
-# 1. On the web page: collect photos, draw boxes (Detection) or skip boxes
-#    (Classification), then press "Download Dataset (YOLO)".
-# 2. Unzip it and put the "dataset/" folder here, next to train.py.
-
-python train.py                # auto-detects the task -> best.pt
-python run.py --conf 0.25      # test with your webcam on this computer
-python export.py --target pi   # package for the edge device (run HERE)
-```
-
-The task is detected automatically — no flags to remember:
-
-| dataset/ contains | train.py picks | run.py shows |
-|---|---|---|
-| data.yaml + 5-number labels | yolov8n (detection) | boxes + center (x, y) |
-| data.yaml + 9-number labels | yolov8n-obb (rotated) | tilted boxes + center |
-| train/\<class\>/ folders | yolov8n-cls (classification) | class name + % |
-
-`run.py` shows an **always-on status line**: how many objects passed the
-threshold, or the best candidate below it with a suggested `--conf` — a silent
-run never happens. A **live FPS counter** shows top-right (printed periodically
-with `--headless`), so you always see the real speed on the real device.
-
-## Deploy to the edge device
-
-**Export on this computer**, then copy the result to the device. `export.py`
-also writes **`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** next to the
-model — a `predict(frame)` function returning plain dicts (name, conf, center,
-box/corners) for all tasks, plus an MQTT → Node-RED example.
-
-**Which path for your device:**
+## 2 · Deploy to the edge device
 
 | Device | On your computer | On the device | Fastest option |
 |---|---|---|---|
 | Raspberry Pi | `python export.py --target pi` | copy `best_ncnn_model/` + run | re-export with `--imgsz 320` |
-| Jetson | nothing — just copy `best.pt` | runs on the GPU as-is | TensorRT: `export.py --target jetson` on the Jetson |
+| Jetson | nothing — just copy `best.pt` | runs on the GPU as-is | TensorRT (below) |
 
-### Raspberry Pi 4 / 5 (Raspberry Pi OS Bookworm 64-bit) — tested working
+Every export also writes **`sample_predict.py` + `SAMPLE_README.md`** — a
+`predict(frame)` function returning plain dicts, ready for your own code and
+MQTT → Node-RED.
 
-**Step 1 — on your computer:**
+### Raspberry Pi 4 / 5 — tested working
 
 ```bash
-python export.py --target pi           # -> best_ncnn_model/ (portable)
+python export.py --target pi           # on your computer -> best_ncnn_model/
 ```
 
-**Step 2 — copy ONLY these 4 items to the Pi** (e.g. into `/home/pi/yolo-trainer/`).
-Nothing else — you do **not** need `best.pt`, `train.py`, `export.py` or the
-dataset on the Pi:
+Copy **only 4 items** to the Pi: the whole `best_ncnn_model/` folder, `run.py`,
+`requirements.txt`, and `sample_predict.py` *(optional)*.
 
-| Copy this | Why |
-|---|---|
-| `best_ncnn_model/` (the whole folder) | your exported model |
-| `run.py` | the live demo |
-| `requirements.txt` | installs the dependencies |
-| `sample_predict.py` *(optional)* | only if you will write your own code |
-
-**Step 3 — on the Pi, install once** (Raspberry Pi OS blocks `pip` on the
-system Python — PEP 668 — so a virtual environment is required, **never
-`sudo pip3`**):
+<details><summary><b>On the Pi — install once + run</b> (a venv is required, never <code>sudo pip3</code>)</summary>
 
 ```bash
-sudo apt update
-sudo apt install -y python3-venv python3-full
-
+sudo apt update && sudo apt install -y python3-venv python3-full
 python3 -m venv --system-site-packages ~/yolo-env
-source ~/yolo-env/bin/activate       # prompt now starts with (yolo-env)
-
+source ~/yolo-env/bin/activate        # prompt shows (yolo-env); check: which python
 python -m pip install --upgrade pip
 python -m pip install --no-cache-dir ncnn
 python -m pip install --no-cache-dir -r requirements.txt
 ```
 
-Quick check that you are inside the venv — `which python` must print
-`/home/pi/yolo-env/bin/python`.
-
-**Step 4 — run** (every new terminal: activate first):
+Run (activate first in every new terminal):
 
 ```bash
 source ~/yolo-env/bin/activate
 cd ~/yolo-trainer
-python run.py --weights best_ncnn_model
+python run.py --weights best_ncnn_model     # add --headless over SSH
 ```
 
-A window opens with the box, center crosshair, status line and live FPS — press `q`
-to quit. Working over SSH with no screen? Add `--headless` and it prints
-`name center=(x, y)px conf=...` to the console instead.
+`externally-managed-environment` or `ModuleNotFoundError: ncnn` means the venv
+was skipped or `sudo pip3` was used — redo the install above. Too slow?
+Re-export with `--imgsz 320`.
+</details>
 
-USB webcams work out of the box. Too slow? Re-export with `--imgsz 320`.
-Real FPS depends on the Pi model, input size and class count — **measure on
-the real device before deciding**.
+### NVIDIA Jetson Orin Nano — tested working (JetPack 7)
 
-### NVIDIA Jetson Orin Nano (JetPack 6 / 7) — step by step
-
-Different from the Pi in two ways: **no export needed first** (`best.pt` runs on
-the Jetson GPU directly), and PyTorch **must be NVIDIA's Jetson wheel** — the
-regular `pip install torch` cannot use the Jetson GPU.
-
-**Step 1 — copy these to the Jetson** (e.g. into `/home/<user>/yolo-trainer/`):
-
-| Copy this | Why |
-|---|---|
-| `best.pt` | the trained model — runs on the GPU as-is |
-| `run.py` | the live demo |
-| `export.py` *(optional)* | only for the TensorRT speed-up in Step 5 |
-| `sample_predict.py` *(optional)* | only if you will write your own code |
-
-**Step 2 — on the Jetson, install once.** First check which JetPack you have —
-the install commands are different:
+Copy `best.pt` + `run.py` (+ `export.py` for TensorRT) to the Jetson —
+**no export needed**, `best.pt` runs on the Jetson GPU directly. Check your
+JetPack first: `cat /etc/nv_tegra_release` → **R39.x = JetPack 7** · R36.x = JetPack 6.
 
 ```bash
-cat /etc/nv_tegra_release        # R36.x = JetPack 6 · R39.x = JetPack 7
-```
-
-**JetPack 7 (R39.x — Ubuntu 24.04, Python 3.12) — tested working.** Ubuntu 24.04 locks pip
-(PEP 668), so add `--break-system-packages` to every pip command:
-
-```bash
+# JetPack 7 (Ubuntu 24.04 locks pip -> every pip command needs --break-system-packages):
 sudo apt update && sudo apt install -y python3-pip
 pip install ultralytics --break-system-packages
 pip uninstall -y torch torchvision --break-system-packages
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130 --break-system-packages
+pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages    # for the TensorRT export
+python3 -c "import torch; print(torch.cuda.is_available())"              # must print True
 
-# for the TensorRT export (Step 5) - preinstall these (AutoUpdate cannot, PEP 668):
-pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages
+sudo nvpmodel -m 0 && sudo jetson_clocks    # full speed - run again after every boot
+python3 run.py --weights best.pt            # live FPS top-right; --headless over SSH
 ```
 
-**JetPack 6 (R36.x — Ubuntu 22.04, Python 3.10).** Commands from the
+**Fastest on Jetson = TensorRT.** The build takes several minutes — that is
+normal and **one-time per model**: keep using `best.pt` while you are still
+improving the dataset, build the engine when the model is final
+(`--imgsz 320` builds and runs faster, slightly lower accuracy):
+
+```bash
+python3 export.py --target jetson      # on the Jetson -> best.engine (FP16)
+python3 run.py --weights best.engine   # compare the FPS counter with best.pt
+```
+
+<details><summary><b>JetPack 6 install · error fixes · Docker</b></summary>
+
+**JetPack 6 (R36.x — Ubuntu 22.04, Python 3.10)** — commands from the
 [Ultralytics Jetson guide](https://docs.ultralytics.com/guides/nvidia-jetson):
 
 ```bash
-sudo apt update
-sudo apt install -y python3-pip
+sudo apt update && sudo apt install -y python3-pip
 pip install -U pip
 pip install ultralytics
 sudo reboot
@@ -196,175 +138,132 @@ sudo cp /var/cudss-local-tegra-repo-ubuntu2204-0.7.1/cudss-*-keyring.gpg /usr/sh
 sudo apt-get update && sudo apt-get -y install cudss
 ```
 
-Verify (both versions) — must print `True`:
+**Error fixes:**
 
-```bash
-python3 -c "import torch; print(torch.cuda.is_available())"
-```
+- a wheel is rejected with *"not a supported wheel on this platform"* — you ran
+  the block for the other JetPack; recheck `cat /etc/nv_tegra_release`
+- export fails `No module named 'onnx'` (JP7) — AutoUpdate is blocked by
+  PEP 668; run the `pip install "onnx<2" ...` line above
+- export fails `No module named 'tensorrt'` — `sudo apt install nvidia-jetpack`
 
-If a wheel is rejected with **"not a supported wheel on this platform"**, you
-are on the other JetPack than the block you ran — recheck
-`cat /etc/nv_tegra_release` and use the matching block (wheel links track the
-Ultralytics guide; take current ones from there if a link 404s later).
+**Docker alternative** (everything preinstalled):
+`t=ultralytics/ultralytics:latest-jetson-jetpack6` then
+`sudo docker run -it --ipc=host --runtime=nvidia -v ~/yolo-trainer:/ws --device /dev/video0 $t`
+and inside: `cd /ws && python3 run.py --weights best.pt --headless`
+</details>
 
-**Step 3 — full speed** (all cores + max clocks, run after every boot or add to startup):
-
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-```
-
-**Step 4 — run:**
-
-```bash
-cd ~/yolo-trainer
-python3 run.py --weights best.pt              # window: box + center + live FPS, q to quit
-python3 run.py --weights best.pt --headless   # over SSH: prints results + FPS periodically
-```
-
-**Step 5 — TensorRT: the fastest way to run on Jetson** (optional; build
-**on the Jetson itself** — an `.engine` only runs on the machine that built it).
-`best.pt` on the GPU is already fast; the FP16 engine is faster still — compare
-with the on-screen FPS counter:
-
-```bash
-python3 export.py --target jetson             # -> best.engine (FP16, takes a few minutes)
-python3 run.py --weights best.engine
-```
-
-If the export fails:
-
-- `No module named 'onnx'` — AutoUpdate is blocked by PEP 668 on JetPack 7;
-  preinstall: `pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages`
-  (if onnxruntime-gpu has no wheel for your Python, use the cp-matching wheel
-  from the [Ultralytics Jetson guide](https://docs.ultralytics.com/guides/nvidia-jetson))
-- `No module named 'tensorrt'` — install the JetPack components:
-  `sudo apt install nvidia-jetpack`, then retry.
-
-> Prefer zero setup? The Ultralytics Docker image has everything preinstalled:
-> `t=ultralytics/ultralytics:latest-jetson-jetpack6` then
-> `sudo docker run -it --ipc=host --runtime=nvidia -v ~/yolo-trainer:/ws --device /dev/video0 $t`
-> and inside: `cd /ws && python3 run.py --weights best.pt --headless`
-
-## Troubleshooting
+<details><summary><b>Troubleshooting (all devices)</b></summary>
 
 | Symptom | Fix |
 |---|---|
-| `externally-managed-environment` or `ModuleNotFoundError: ncnn` on the Pi | you installed with system Python or `sudo pip3` — redo Step 3 (venv), install without sudo |
 | Camera will not open | try `--source 0` / `--source 1`; close apps using it (browser Live Test tab, Zoom) |
-| Training is slow | normal on CPU — lower `--epochs 40` or use a machine with an NVIDIA GPU |
+| Training is slow | normal on CPU — lower `--epochs 40` or use the GPU section above |
 | Run shows no boxes at all | read the on-screen status line — usually low conf: try `--conf 0.25` and collect more photos (40–100/class) in the real lighting |
 | Wrong detections in the real scene | collect more photos in the real lighting/background, retrain |
+| Pi: `externally-managed-environment` / no `ncnn` | venv skipped or `sudo pip3` used — redo the Pi install |
+</details>
 
 ---
 
 # TESR YOLO Trainer — จาก dataset บนเว็บ สู่โมเดลที่ deploy บน Edge
 
-**ทางเดียว ไม่มีทางแยก** เก็บรูปและ label บน[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)
-เทรนและ export **บนคอมพิวเตอร์ของคุณ** แล้วก๊อปโมเดลที่เสร็จแล้วไปที่อุปกรณ์ Edge
+**ทางเดียว ไม่มีทางแยก:** เก็บรูป + label บน[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)
+→ เทรนบนคอมพิวเตอร์ → ก๊อปโมเดลไปอุปกรณ์ Edge
 
-```text
-🌐 หน้าเว็บ                💻 คอมพิวเตอร์ของคุณ              📦 Edge device
-ถ่าย + label     →   train.py → run.py → export.py   →   ก๊อปโมเดล → รัน
-(Download Dataset)     เทรน       ทดสอบ     แพ็ก           Raspberry Pi / Jetson
-```
-
-## ติดตั้งครั้งเดียว (บนคอมพิวเตอร์)
-
-Python **3.10–3.12** → `python -m venv venv` → activate → `pip install -r requirements.txt`
-มี GPU NVIDIA เทรนไม่กี่นาที · CPU ก็ได้ ช้ากว่าแต่ผลเท่ากัน
-
-**ใช้ GPU NVIDIA เทรนเร็วขึ้น (Windows):** pip ปกติติด PyTorch แบบ CPU เท่านั้น
-ต้องเปลี่ยนเป็นตัว CUDA (ไม่ต้องลง CUDA Toolkit แยก ขอแค่ NVIDIA driver รุ่นใหม่):
+## 1 · เทรนบนคอมพิวเตอร์
 
 ```bash
-venv\Scripts\activate
+python -m venv venv
+# Windows: venv\Scripts\activate      Linux/macOS: source venv/bin/activate
+pip install -r requirements.txt
+
+# แตก zip จากปุ่ม "Download Dataset (YOLO)" วางโฟลเดอร์ dataset/ ข้าง train.py แล้ว:
+python train.py                # ตรวจโหมดอัตโนมัติ -> best.pt
+python run.py --conf 0.25      # ทดสอบด้วย webcam - FPS โชว์มุมขวาบน
+```
+
+<details><summary><b>⚡ เทรนเร็วขึ้นด้วย GPU NVIDIA (Windows)</b></summary>
+
+pip ปกติติด PyTorch แบบ CPU เท่านั้น ต้องเปลี่ยนเป็นตัว CUDA
+(ไม่ต้องลง CUDA Toolkit แยก ขอแค่ NVIDIA driver รุ่นใหม่):
+
+```bash
 pip uninstall -y torch torchvision
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+python -c "import torch; print(torch.cuda.is_available())"    # ต้องได้ True
 ```
 
-เช็คด้วย `python -c "import torch; print(torch.cuda.is_available())"` ต้องได้ `True`
-แล้ว `python train.py` จะใช้ GPU อัตโนมัติ (คอลัมน์ `GPU_mem` ใน log ต้องไม่ใช่ `0G`)
-· การ์ด 6 GB ถ้า out-of-memory ให้ใช้ `--batch 8` หรือ `--imgsz 480`
+แล้ว `train.py` ใช้ GPU อัตโนมัติ (คอลัมน์ `GPU_mem` ใน log ต้องไม่ใช่ `0G`)
+· การ์ด 6 GB ถ้า out-of-memory ใช้ `--batch 8` หรือ `--imgsz 480`
+</details>
 
-## ขั้นตอน
-
-```bash
-# 1. บนเว็บ: ถ่ายรูป + ลากกรอบ (Detection) หรือไม่ต้องลาก (Classification)
-#    แล้วกด "Download Dataset (YOLO)"
-# 2. แตก zip วางโฟลเดอร์ dataset/ ไว้ที่นี่ ข้าง train.py
-
-python train.py                # ตรวจโหมดอัตโนมัติ -> best.pt
-python run.py --conf 0.25      # ทดสอบด้วย webcam บนคอมพิวเตอร์
-python export.py --target pi   # แพ็กสำหรับ Edge (รัน "ที่นี่" บนคอมพิวเตอร์)
-```
-
-ตัวกำหนดโหมดคือ Task ที่เลือกบนเว็บก่อนกด Download — `train.py` อ่านจากโครงสร้าง
-dataset เอง (5 ตัวเลข = detect, 9 = OBB กรอบเอียง, โฟลเดอร์ต่อคลาส = classify)
-และ `run.py` มีบรรทัดสถานะบนจอตลอด + **FPS โชว์มุมขวาบน** จะไม่มีการรันแบบ "เงียบ"
-
-## Deploy ลง Edge
-
-**Export บนคอมพิวเตอร์** แล้วก๊อปผลลัพธ์ไปที่เครื่อง — `export.py` แถม
-**`sample_predict.py` + `SAMPLE_README.md` (EN/TH)** ให้ทุกครั้ง: ฟังก์ชัน
-`predict(frame)` คืน dict พร้อมใช้ + ตัวอย่าง MQTT → Node-RED
-
-**เลือกเส้นทางตามอุปกรณ์:**
+## 2 · Deploy ลง Edge
 
 | อุปกรณ์ | บนคอมพิวเตอร์ | บนอุปกรณ์ | เร็วสุด |
 |---|---|---|---|
 | Raspberry Pi | `python export.py --target pi` | ก๊อป `best_ncnn_model/` + รัน | re-export `--imgsz 320` |
-| Jetson | ไม่ต้อง export — ก๊อป `best.pt` | รันบน GPU ได้เลย | TensorRT: `export.py --target jetson` บนตัว Jetson |
+| Jetson | ไม่ต้อง export — ก๊อป `best.pt` | รันบน GPU ได้เลย | TensorRT (ด้านล่าง) |
 
-- **Raspberry Pi 4/5 (ทดสอบแล้วใช้ได้จริง):**
-  1. บนคอมพิวเตอร์: `python export.py --target pi` → ได้ `best_ncnn_model/`
-  2. **ก๊อปไป Pi แค่ 4 อย่างเท่านั้น**: โฟลเดอร์ `best_ncnn_model/` ทั้งโฟลเดอร์,
-     `run.py`, `requirements.txt` และ `sample_predict.py` (เฉพาะถ้าจะเขียนโค้ดเอง)
-     — **ไม่ต้องเอา** `best.pt`, `train.py`, `export.py` หรือ dataset ไปด้วย
-  3. บน Pi (ครั้งแรกครั้งเดียว) — Raspberry Pi OS กันไม่ให้ pip ลง Python ของระบบ
-     (PEP 668) ต้องใช้ venv เท่านั้น และ **ห้ามใช้ `sudo pip3` เด็ดขาด**:
-     `sudo apt install -y python3-venv python3-full` →
-     `python3 -m venv --system-site-packages ~/yolo-env` →
-     `source ~/yolo-env/bin/activate` (หน้าจอขึ้น `(yolo-env)` นำหน้า) →
-     `python -m pip install --upgrade pip` →
-     `python -m pip install --no-cache-dir ncnn` →
-     `python -m pip install --no-cache-dir -r requirements.txt`
-     (เช็คด้วย `which python` ต้องได้ `/home/pi/yolo-env/bin/python`)
-  4. รัน (เปิด Terminal ใหม่ต้อง activate ก่อนทุกครั้ง):
-     `source ~/yolo-env/bin/activate` → `cd ~/yolo-trainer` →
-     `python run.py --weights best_ncnn_model` — หน้าต่างโผล่พร้อมกรอบ +
-     center + FPS มุมขวาบน (กด `q` เพื่อออก) · ใช้ผ่าน SSH ไม่มีจอ เติม `--headless`
-  (กล้อง USB ใช้ได้ทันที · ช้าไปให้ re-export ด้วย `--imgsz 320` · FPS จริงวัดบนเครื่องจริง)
-- **Jetson Orin Nano (JetPack 6 / 7) ทีละขั้น** — ต่างจาก Pi ตรงที่**ไม่ต้อง export ก่อน**
-  (`best.pt` รันบน GPU ของ Jetson ได้เลย) แต่ PyTorch **ต้องเป็น wheel ของ NVIDIA เท่านั้น**:
-  1. ก๊อปไป Jetson: `best.pt`, `run.py` (+ `export.py` ถ้าจะทำ TensorRT, `sample_predict.py` ถ้าจะเขียนโค้ดเอง)
-  2. เช็ครุ่นก่อน: `cat /etc/nv_tegra_release` — **R39.x = JetPack 7 — ทดสอบแล้วใช้ได้จริง** (Ubuntu 24.04/Python 3.12
-     ทุกคำสั่ง pip ต้องเติม `--break-system-packages`): `pip install ultralytics` →
-     `pip uninstall -y torch torchvision` →
-     `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130`
-     · **R36.x = JetPack 6**: ใช้ wheel ของ NVIDIA + cuDSS ตาม block ภาษาอังกฤษด้านบน
-     · เช็ค `python3 -c "import torch; print(torch.cuda.is_available())"` ต้องได้ `True`
-     (ถ้า wheel ขึ้น "not a supported wheel" = รัน block ผิดรุ่น JetPack)
-  3. เร่งเต็มสปีด: `sudo nvpmodel -m 0` และ `sudo jetson_clocks` (รันใหม่หลังเปิดเครื่องทุกครั้ง)
-  4. รัน: `cd ~/yolo-trainer` → `python3 run.py --weights best.pt` — มี FPS โชว์มุมขวาบน
-     (ผ่าน SSH เติม `--headless` จะพิมพ์ FPS เป็นระยะ)
-  5. **เร็วสุดบน Jetson = TensorRT**: `python3 export.py --target jetson` **บนตัว Jetson**
-     → ได้ `best.engine` → `python3 run.py --weights best.engine` (เทียบ FPS กับ best.pt ได้เลย
-     · ถ้าขึ้น `No module named 'onnx'` (JP7): `pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages`
-     · ถ้าขึ้น `No module named 'tensorrt'` ให้ `sudo apt install nvidia-jetpack` ก่อน)
-- `--headless` พิมพ์ `name center=(x, y)px conf=...` ผ่าน SSH — ส่งต่อเข้า
-  MQTT/Node-RED/PLC ได้ทันที ใช้ได้ทุกโหมด
+### Raspberry Pi — ทดสอบแล้วใช้ได้จริง
 
-> **ทางเลือกเร่งความเร็ว (advanced):** บนตัว Jetson เอง รัน
-> `python export.py --target jetson` เพื่อ build TensorRT engine —
-> `.engine` ใช้ได้เฉพาะเครื่องที่ build เท่านั้น เส้นทางหลักจึงใช้แค่ `best.pt`
+บนคอม: `python export.py --target pi` → ก๊อปไป Pi **แค่ 4 อย่าง**:
+โฟลเดอร์ `best_ncnn_model/` ทั้งโฟลเดอร์, `run.py`, `requirements.txt`, `sample_predict.py` (ถ้าจะเขียนโค้ดเอง)
 
-## Troubleshooting (ไทย)
+<details><summary><b>บน Pi — ติดตั้งครั้งเดียว + รัน</b> (ต้องใช้ venv · ห้าม <code>sudo pip3</code> เด็ดขาด)</summary>
 
-| อาการ | ทางแก้ |
-|---|---|
-| Pi ขึ้น `externally-managed-environment` / หา `ncnn` ไม่เจอ | ไปติดตั้งด้วย Python ระบบหรือ `sudo pip3` — ทำข้อ 3 ใหม่ (venv) และห้ามใช้ sudo |
-| กล้องเปิดไม่ได้ | `--source 0` / `--source 1`, ปิดแอปที่ใช้กล้องอยู่ (แท็บ Live Test, Zoom) |
-| เทรนช้า | ปกติของ CPU — ลด `--epochs 40` หรือใช้เครื่องที่มี GPU |
-| รันแล้วไม่ขึ้นกรอบ | ดูบรรทัดสถานะบนจอ — มักเป็น conf ต่ำ: `--conf 0.25` + เก็บรูปเพิ่ม (40–100/คลาส) ในแสงจริง |
-| ใช้จริงแล้วตรวจพลาด | เก็บรูปเพิ่มในแสง/ฉากที่ใช้จริง แล้วเทรนซ้ำ |
+```bash
+sudo apt update && sudo apt install -y python3-venv python3-full
+python3 -m venv --system-site-packages ~/yolo-env
+source ~/yolo-env/bin/activate        # หน้าจอขึ้น (yolo-env) นำหน้า
+python -m pip install --upgrade pip
+python -m pip install --no-cache-dir ncnn
+python -m pip install --no-cache-dir -r requirements.txt
+```
+
+รัน (เปิด Terminal ใหม่ต้อง activate ก่อนทุกครั้ง):
+
+```bash
+source ~/yolo-env/bin/activate
+cd ~/yolo-trainer
+python run.py --weights best_ncnn_model     # ผ่าน SSH เติม --headless
+```
+
+ขึ้น `externally-managed-environment` / หา `ncnn` ไม่เจอ = ข้าม venv หรือใช้
+`sudo pip3` — ทำขั้นตอนข้างบนใหม่ · ช้าไปให้ re-export ด้วย `--imgsz 320`
+</details>
+
+### Jetson Orin Nano — ทดสอบแล้วใช้ได้จริง (JetPack 7)
+
+ก๊อป `best.pt` + `run.py` (+ `export.py` ถ้าจะทำ TensorRT) — **ไม่ต้อง export**
+· เช็ครุ่นก่อน: `cat /etc/nv_tegra_release` → **R39.x = JetPack 7** · R36.x = JetPack 6 (ดูในส่วนพับ)
+
+```bash
+# JetPack 7 (Ubuntu 24.04 ล็อก pip -> ทุกคำสั่ง pip ต้องเติม --break-system-packages):
+sudo apt update && sudo apt install -y python3-pip
+pip install ultralytics --break-system-packages
+pip uninstall -y torch torchvision --break-system-packages
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130 --break-system-packages
+pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages    # สำหรับ TensorRT export
+python3 -c "import torch; print(torch.cuda.is_available())"              # ต้องได้ True
+
+sudo nvpmodel -m 0 && sudo jetson_clocks    # เร่งเต็มสปีด (รันใหม่หลังบูตทุกครั้ง)
+python3 run.py --weights best.pt            # FPS โชว์มุมขวาบน · ผ่าน SSH เติม --headless
+```
+
+**เร็วสุดบน Jetson = TensorRT** — build นานหลายนาทีเป็นเรื่องปกติ และทำ
+**ครั้งเดียวต่อโมเดล**: ระหว่างยังปรับ dataset ใช้ `best.pt` ไปก่อน ค่อย build
+ตอนโมเดลนิ่งแล้ว (`--imgsz 320` build เร็วขึ้น+รันเร็วขึ้น แม่นลดลงเล็กน้อย):
+
+```bash
+python3 export.py --target jetson      # บนตัว Jetson -> best.engine (FP16)
+python3 run.py --weights best.engine   # เทียบ FPS กับ best.pt ได้เลย
+```
+
+<details><summary><b>JetPack 6 · แก้ error · Docker</b></summary>
+
+ดู block **JetPack 6 install · error fixes · Docker** ในส่วนภาษาอังกฤษด้านบน — สรุป:
+JP6 ใช้ torch/torchvision wheel ของ NVIDIA + cuDSS · wheel ขึ้น "not a supported
+wheel" = รัน block ผิดรุ่น JetPack · export ขึ้น `No module named 'onnx'` (JP7) =
+รันบรรทัด `pip install "onnx<2" ...` ข้างบน · ขึ้น `No module named 'tensorrt'` =
+`sudo apt install nvidia-jetpack`
+</details>
