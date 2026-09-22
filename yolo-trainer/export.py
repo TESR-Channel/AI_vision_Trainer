@@ -23,7 +23,9 @@ The exported model runs with the SAME runner:
     python run.py --weights <exported model> [--headless]
 """
 import argparse
+import importlib.util
 import platform
+import sys
 from pathlib import Path
 
 TARGETS = {
@@ -282,6 +284,19 @@ def main():
                 "Jetson (see README, Jetson section), install once there, then run\n"
                 "    python3 export.py --target jetson")
         print("\nBuilding the TensorRT engine on this Jetson - takes a few minutes...\n")
+
+    # preflight: ultralytics cannot auto-install these on PEP 668 systems (Ubuntu 24.04)
+    if fmt in ("engine", "onnx"):
+        missing = [m for m in ("onnx", "onnxslim")
+                   if importlib.util.find_spec(m) is None]
+        if missing:
+            cmd = 'pip install "onnx<2" onnxslim onnxruntime-gpu'
+            if Path("/usr/lib/python3.%d/EXTERNALLY-MANAGED" % sys.version_info[1]).exists():
+                cmd += " --break-system-packages"
+            raise SystemExit(
+                "\nMissing packages for this export: %s\n"
+                "Install them once:\n    %s\n"
+                "then run this command again." % (", ".join(missing), cmd))
 
     from ultralytics import YOLO
 
