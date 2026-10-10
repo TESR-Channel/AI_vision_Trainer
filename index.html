@@ -8,6 +8,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="./onnx-export.js"></script>
+<script src="./edge-files.js"></script>
 <style>
 :root{
   --paper:#100f0d; --card:#1a1815; --soft:#242019; --edge:#37322a;
@@ -288,8 +290,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           style="width:100%;border-radius:12px;background:#111;display:block;margin-bottom:12px"></canvas>
         <div class="row">
           <button class="gold" id="btnLive" onclick="toggleLive()">&#9654; Start Live Test</button>
-          <select id="mode" style="width:250px" onchange="lastBoxW=null;lastLabel=null;">
-            <option value="detect">Detect &mdash; box + center</option>
+          <select id="mode" style="width:250px" onchange="lastBoxW=null;lastLabel=null;lastMulti=null;syncModeUI();">
+            <option value="detect">Detect &mdash; one object, box + center</option>
+            <option value="multi">Detect multi &mdash; many objects (beta)</option>
             <option value="classify">Classify &mdash; whole frame</option>
           </select>
           <select id="prec" style="width:250px" title="How the box is found">
@@ -306,6 +309,11 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="hint" id="gatesHint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the
         frame does not <i>look like</i> any of your training photos (feature similarity, learned
         automatically at training time).</div>
+        <div class="hint" id="multiHint" style="display:none"><b>Multi (beta)</b> scores 71 regions of
+        the frame in <b>one</b> backbone pass, keeps every region that looks like a trained class, refines
+        each box with your box model and merges overlaps (NMS). Every object gets its own box + center.
+        Boxes are coarser than YOLO; a <b>background</b> class of your empty scene cuts false hits a lot.
+        This is exactly what the exported <code>model.onnx</code> computes in its <code>output0</code>.</div>
         <div class="hint" id="detHint"><b>Precise</b> scans 25 crops per frame to find the
         object wherever it is (~1 fps); <b>Fast</b> uses the trained box model (real-time but
         coarser &mdash; needs training photos with the object in many positions). Both show a
@@ -316,15 +324,43 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       </div>
       <div>
         <div class="note" id="expNote" style="margin-top:0">
-          <b>Export</b> downloads a single <code>.zip</code> with your trained model, a
-          ready-to-run <b>Python sample</b> (webcam or image, draws the box + center),
-          one-click installers for Windows/Linux, and a step-by-step
-          <code>README_PYTHON.md</code>.
+          <b>Export for your device</b> &mdash; one standard <code>model.onnx</code> (backbone + your
+          trained heads) plus a ready-to-run <code>predict.py</code> that needs only
+          <code>onnxruntime</code> + OpenCV &mdash; no TensorFlow. Pick the device and camera; the zip
+          comes with the matching installer and <code>README_DEPLOY.md</code>.
         </div>
+        <div class="row" style="margin-top:14px;align-items:flex-end">
+          <div><label class="tag">Deploy to</label><br>
+            <select id="tgt" style="width:270px" onchange="syncTargetUI()">
+              <option value="pc">PC &mdash; Windows / Linux / macOS</option>
+              <option value="pi5">Raspberry Pi 5</option>
+              <option value="jetson">NVIDIA Jetson Orin Nano / NX / AGX</option>
+              <option value="jetson_nano">Jetson Nano (JetPack 4 &middot; experimental)</option>
+            </select></div>
+          <div><label class="tag">Camera</label><br>
+            <select id="tgtCam" style="width:200px" onchange="saveTargetUI()">
+              <option value="usb">USB webcam</option>
+              <option value="csi">CSI ribbon camera</option>
+            </select></div>
+          <div id="tgtModeBox"><label class="tag">Detection on device</label><br>
+            <select id="tgtMode" style="width:220px" onchange="saveTargetUI()">
+              <option value="single">One object &mdash; fast box</option>
+              <option value="precise">One object &mdash; precise (slower)</option>
+              <option value="multi">Many objects (beta)</option>
+            </select></div>
+        </div>
+        <div class="hint" id="tgtHint"></div>
         <div class="row" style="margin-top:14px">
-          <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download Model</button>
-          <span class="msg" id="eMsg" style="margin:0"></span>
+          <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download for Device (.zip)</button>
+          <button class="gold" onclick="exportOnnxOnly()" id="btnOnnx" disabled>&#11015; ONNX only</button>
+          <button class="gold" onclick="sendToRoiStudio()" id="btnRoi" disabled>&#127919; Send to ROI Studio</button>
         </div>
+        <div class="msg" id="eMsg"></div>
+        <div class="hint" id="onnxHint"><b>ONNX only</b> = <code>model.onnx</code> for course chapter 8
+          (ONNX &rarr; TensorRT: <code>trtexec --onnx=model.onnx --fp16</code>). Input
+          <code>images [1,3,224,224]</code> RGB 0..1; detection adds a YOLO-style <code>output0</code>.
+          <b>Send to ROI Studio</b> puts the model straight into ROI Studio's <i>My models</i> &mdash;
+          draw an ROI, choose YOLO detect/classify, pick the model.</div>
       </div>
     </div>
   </div>
@@ -372,7 +408,8 @@ applyTheme(th);
 let LANG = 'en'; try{LANG = localStorage.getItem('tesr_lang') || 'en'}catch(e){}
 function t(en, th2){ return (LANG === 'th' && th2) ? th2 : en; }
 const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSub','augHint',
-                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub','projNote'];
+                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub','projNote',
+                  'multiHint','onnxHint'];
 function applyLang(){
   const TH = window.TH || {};
   document.getElementById('langBtn').textContent =
@@ -424,7 +461,10 @@ function setTask(t){
       window.TH && TH.collectNoteClassify(REC.classify.min, REC.classify.good));
   const modeSel = document.getElementById('mode');
   modeSel.style.display = (t==='detect') ? '' : 'none';
-  if (t==='classify') modeSel.value = 'classify'; else modeSel.value = 'detect';
+  if (t==='classify') modeSel.value = 'classify';
+  else if (modeSel.value === 'classify') modeSel.value = 'detect';
+  document.getElementById('tgtModeBox').style.display = t==='detect' ? '' : 'none';
+  syncModeUI(); syncTargetUI();
   document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
   document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
   document.getElementById('dsHint').innerHTML = t==='detect'
@@ -1229,7 +1269,13 @@ async function train(){
       + (low.length ? ` \u26a0\ufe0f Below the recommended ${min}/class: ${low.join(', ')} \u2014 it will work, but more photos = better.` : '');
     document.getElementById('testCard').style.display = '';
     document.getElementById('btnExport').disabled = false;
-    document.getElementById('mode').value = task==='detect' ? 'detect' : 'classify';
+    document.getElementById('btnOnnx').disabled = false;
+    document.getElementById('btnRoi').disabled = false;
+    modelVersion++; onnxCache = null; protoT = null; lastMulti = null;
+    const ms = document.getElementById('mode');
+    if (task !== 'detect') ms.value = 'classify';
+    else if (ms.value === 'classify') ms.value = 'detect';
+    syncModeUI();
     setStep(4);
   } catch(e) {
     msg.className = 'msg err';
@@ -1242,11 +1288,11 @@ async function train(){
 }
 
 /* ============ live test ============ */
-let lastBoxW = null, lastLabel = null, lastDetName = null, lastDetConf = 0;
+let lastBoxW = null, lastLabel = null, lastDetName = null, lastDetConf = 0, lastMulti = null;
 async function toggleLive(){
   liveOn = !liveOn;
   document.getElementById('btnLive').textContent = liveOn ? '\u23f8 Stop' : '\u25b6 Start Live Test';
-  if (liveOn) { lastBoxW = null; lastLabel = null; renderLoopW(); inferLoopW(); }
+  if (liveOn) { lastBoxW = null; lastLabel = null; lastMulti = null; renderLoopW(); inferLoopW(); }
 }
 function smoothBox(prev, next){
   if (!prev) return next;
@@ -1284,6 +1330,27 @@ function renderLoopW(){
       tx.fillRect(8, tv.height-34, tw, 26);
       tx.fillStyle = col;
       tx.fillText(cLabel, 15, tv.height-15);
+    } else if (mode === 'multi' && lastMulti) {
+      tx.font = '16px Kanit, sans-serif';
+      lastMulti.forEach((d, k) => {
+        const [cx, cy, w, h] = d.box, col = MULTI_COLORS[d.cls % MULTI_COLORS.length];
+        const x = (cx - w/2)*tv.width, y = (cy - h/2)*tv.height;
+        tx.strokeStyle = col; tx.lineWidth = 3;
+        tx.strokeRect(x, y, w*tv.width, h*tv.height);
+        const px = cx*tv.width, py = cy*tv.height;
+        tx.beginPath(); tx.moveTo(px-10,py); tx.lineTo(px+10,py);
+        tx.moveTo(px,py-10); tx.lineTo(px,py+10); tx.lineWidth = 2; tx.stroke();
+        const label = `#${k+1} ${d.name} ${(100*d.conf).toFixed(0)}%`;
+        const tw = tx.measureText(label).width + 12;
+        tx.fillStyle = 'rgba(20,17,12,.82)';
+        tx.fillRect(x, Math.max(0, y-24), tw, 24);
+        tx.fillStyle = col; tx.fillText(label, x+6, Math.max(17, y-7));
+      });
+      const cLabel = `${lastMulti.length} object(s)`;
+      tx.font = '18px Kanit, sans-serif';
+      const tw = tx.measureText(cLabel).width + 14;
+      tx.fillStyle = 'rgba(20,17,12,.82)'; tx.fillRect(8, tv.height-34, tw, 26);
+      tx.fillStyle = '#c9a84c'; tx.fillText(cLabel, 15, tv.height-15);
     } else if (mode === 'classify' && lastLabel) {
       tx.font = '20px Kanit, sans-serif';
       const tw = tx.measureText(lastLabel).width + 16;
@@ -1301,6 +1368,21 @@ async function inferLoopW(){
     if (!video.videoWidth || video.readyState < 2) { await tf.nextFrame(); continue; }
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
+    if (mode === 'multi') {
+      if (!boxHead) { await tf.nextFrame(); continue; }
+      const dets = await predictMulti(video);
+      lastMulti = dets;
+      document.getElementById('pred').innerHTML = dets.length
+        ? dets.map((d, k) => `<div class="prow"><div class="pname" style="width:auto">
+            \ud83d\udccd <b>#${k+1} ${d.name}</b> ${(100*d.conf).toFixed(0)}% &nbsp;\u00b7&nbsp;
+            center (${Math.round(d.box[0]*video.videoWidth)}, ${Math.round(d.box[1]*video.videoHeight)})px
+            </div></div>`).join('')
+        : '<div class="msg" style="margin-top:0">none \u2014 no trained object in view</div>';
+      const fpsM = 1000/(performance.now()-t0);
+      document.getElementById('fpsTag').textContent = fpsM.toFixed(fpsM >= 3 ? 0 : 1) + ' predictions/sec';
+      await tf.nextFrame();
+      continue;
+    }
     const useGrid = mode === 'detect' && boxHead !== undefined &&
                     document.getElementById('prec').value === 'grid';
     const r = useGrid ? await predictGrid(video) : await predictEl(video);
@@ -1337,6 +1419,334 @@ async function inferLoopW(){
     document.getElementById('fpsTag').textContent =
       fps >= 3 ? fps.toFixed(0) + ' predictions/sec' : fps.toFixed(1) + ' predictions/sec';
     await tf.nextFrame();
+  }
+}
+
+/* ============ multi-object detection (beta) ============
+   One backbone pass -> the 7x7 feature grid -> 71 pooled regions (window
+   sizes 7,5,3,2 cells). Each region is classified by YOUR head, refined by
+   YOUR box head (box relative to the region), gated by the "looks like my
+   training photos" similarity, then overlaps are merged (NMS). This is the
+   same math the exported model.onnx does in its output0. */
+const MULTI_COLORS = ['#c9a84c', '#d8484c', '#5fbf85', '#5aa9e6', '#c77dff', '#ff9f43'];
+let fmapNodeName = null, protoT = null;
+function fmapNode(){
+  if (!fmapNodeName) fmapNodeName = TESR_ONNX.findFeatureNode(net.model).fmap;
+  return fmapNodeName;
+}
+function boxIoU(a, b){
+  const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]);
+  const x2 = Math.min(a[2], b[2]), y2 = Math.min(a[3], b[3]);
+  const inter = Math.max(0, x2-x1) * Math.max(0, y2-y1);
+  if (inter <= 0) return 0;
+  return inter / ((a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter);
+}
+async function predictMulti(el){
+  const cv = makeSrc(el);                                   // 224x224, same as training
+  if (protos && !protoT) protoT = tf.tidy(() => {
+    const C = tf.tensor2d(protos.C);
+    return C.div(C.norm('euclidean', 1, true).add(1e-9)).transpose();
+  });
+  let geo = null;
+  const [P, B, S] = tf.tidy(() => {
+    const img = tf.browser.fromPixels(cv).toFloat().mul(2/255).sub(1).expandDims(0);
+    const fm = net.model.execute(img, fmapNode());          // [1,G,G,C]
+    const G = fm.shape[1], C = fm.shape[3];
+    const parts = [];
+    for (const k of TESR_ONNX.WINDOW_KERNELS) if (k <= G)
+      parts.push(tf.avgPool(fm, [k, k], [1, 1], 'valid').reshape([-1, C]));
+    const W = tf.concat(parts, 0);
+    const sim = protoT
+      ? tf.matMul(W.div(W.norm('euclidean', 1, true).add(1e-9)), protoT).max(1)
+      : tf.ones([W.shape[0]]);
+    geo = TESR_ONNX.windowGeometry(G, 224);
+    return [head.predict(W), boxHead.predict(W), sim];
+  });
+  const [p, b, sim] = await Promise.all([P.array(), B.array(), S.array()]);
+  P.dispose(); B.dispose(); S.dispose();
+  const minConf = +document.getElementById('minConf').value;
+  const simThr = protos ? Math.max(0.2, protos.thr * 0.9) : -1;
+  const names = head.classNames;
+  const cand = [];
+  p.forEach((row, i) => {
+    if (sim[i] <= simThr) return;
+    let best = -1, bs = 0;
+    row.forEach((v, c) => { if (!TESR_ONNX.isBackground(names[c]) && v > bs) { bs = v; best = c; } });
+    if (best < 0 || bs < minConf) return;
+    const g = geo[i], bb = b[i];
+    const cx = (g.x0 + bb[0]*g.s)/224, cy = (g.y0 + bb[1]*g.s)/224, w = bb[2]*g.s/224, h = bb[3]*g.s/224;
+    cand.push({cls: best, name: names[best], conf: bs, box: [cx, cy, w, h],
+               xyxy: [cx - w/2, cy - h/2, cx + w/2, cy + h/2]});
+  });
+  cand.sort((a, c) => c.conf - a.conf);
+  const keep = [];
+  for (const d of cand){
+    if (keep.some(k => k.cls === d.cls && boxIoU(k.xyxy, d.xyxy) > 0.45)) continue;
+    keep.push(d);
+    if (keep.length >= 20) break;
+  }
+  return keep;
+}
+function syncModeUI(){
+  const m = document.getElementById('mode').value;
+  document.getElementById('prec').style.display = (task === 'detect' && m === 'detect') ? '' : 'none';
+  document.getElementById('multiHint').style.display = m === 'multi' ? '' : 'none';
+  document.getElementById('detHint').style.display = (task === 'detect' && m === 'detect') ? '' : 'none';
+}
+
+/* ============ deploy targets ============ */
+const TARGETS = {
+  pc:          {label: 'PC (Windows / Linux / macOS)', csi: false},
+  pi5:         {label: 'Raspberry Pi 5', csi: true},
+  jetson:      {label: 'NVIDIA Jetson Orin', csi: true},
+  jetson_nano: {label: 'Jetson Nano (JetPack 4, experimental)', csi: true},
+};
+function syncTargetUI(load){
+  const tg = document.getElementById('tgt'), cam = document.getElementById('tgtCam'),
+        md = document.getElementById('tgtMode');
+  if (load){
+    try{
+      const v = JSON.parse(localStorage.getItem('tesr_target') || '{}');
+      if (v.tgt && TARGETS[v.tgt]) tg.value = v.tgt;
+      if (v.cam) cam.value = v.cam;
+      if (v.mode) md.value = v.mode;
+    }catch(e){}
+  }
+  const T = TARGETS[tg.value];
+  cam.disabled = !T.csi;
+  if (!T.csi) cam.value = 'usb';
+  const hints = {
+    pc: t('Installer: <code>install_windows.bat</code> or <code>install_linux.sh</code>. Any Python 3.8+.',
+          'ตัวติดตั้ง: <code>install_windows.bat</code> หรือ <code>install_linux.sh</code> ใช้ Python 3.8 ขึ้นไปได้หมด'),
+    pi5: t('64-bit Raspberry Pi OS. <code>install_pi.sh</code> uses apt OpenCV + Picamera2 in a venv (no <code>sudo pip</code>). CSI = Picamera2.',
+           'Raspberry Pi OS 64-bit &middot; <code>install_pi.sh</code> ใช้ OpenCV + Picamera2 จาก apt ใน venv (ไม่ใช้ <code>sudo pip</code>) &middot; CSI = Picamera2'),
+    jetson: t('<code>install_jetson.sh</code> (system OpenCV with GStreamer for CSI) + <code>build_trt.sh</code> to build a TensorRT FP16 engine on the board.',
+              '<code>install_jetson.sh</code> (ใช้ OpenCV ของระบบที่มี GStreamer สำหรับ CSI) + <code>build_trt.sh</code> สร้าง TensorRT FP16 engine บนบอร์ด'),
+    jetson_nano: t('Experimental: Jetson Nano is limited to JetPack 4 (Python 3.6, TensorRT 8.2) - newer software does not support it. TensorRT via <code>build_trt.sh</code> is the most reliable path.',
+                   'ทดลอง: Jetson Nano ค้างอยู่ที่ JetPack 4 (Python 3.6, TensorRT 8.2) ซอฟต์แวร์ใหม่ ๆ ไม่รองรับแล้ว ใช้ TensorRT ผ่าน <code>build_trt.sh</code> เสถียรที่สุด'),
+  };
+  document.getElementById('tgtHint').innerHTML = hints[tg.value];
+  saveTargetUI();
+}
+function saveTargetUI(){
+  try{ localStorage.setItem('tesr_target', JSON.stringify({
+    tgt: document.getElementById('tgt').value, cam: document.getElementById('tgtCam').value,
+    mode: document.getElementById('tgtMode').value})); }catch(e){}
+}
+
+/* ============ ONNX build + in-browser self-check ============ */
+let modelVersion = 0, onnxCache = null;
+const ORT_URLS = ['https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
+                  'https://unpkg.com/onnxruntime-web@1.19.2/dist/ort.min.js'];
+let ortLoading = null;
+function loadOrt(){
+  if (window.ort) return Promise.resolve(window.ort);
+  if (ortLoading) return ortLoading;
+  ortLoading = new Promise((res, rej) => {
+    let i = 0;
+    const next = () => {
+      if (i >= ORT_URLS.length) { ortLoading = null; return rej(new Error('onnxruntime-web could not be loaded (offline?)')); }
+      const sc = document.createElement('script');
+      sc.src = ORT_URLS[i++];
+      sc.onload = () => res(window.ort);
+      sc.onerror = next;
+      document.head.appendChild(sc);
+    };
+    next();
+  });
+  return ortLoading;
+}
+async function buildOnnx(){
+  if (onnxCache && onnxCache.version === modelVersion) return onnxCache;
+  const r = TESR_ONNX.buildModel({net, head, boxHead: task === 'detect' ? boxHead : null,
+                                  protos, task: boxHead && task === 'detect' ? 'detect' : 'classify'});
+  onnxCache = {version: modelVersion, bytes: r.bytes, info: r, check: null};
+  return onnxCache;
+}
+/* Runs the .onnx with onnxruntime-web and compares it to the TF.js model
+   on one of YOUR photos - proof the file computes the same thing. */
+async function selfCheck(oc){
+  if (oc.check) return oc.check;
+  const ex = classes.flatMap(c => c.examples).find(e => !e.aug) || classes[0].examples[0];
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = ex.src; });
+  const cv = makeSrc(img);
+  const px = cv.getContext('2d').getImageData(0, 0, 224, 224).data;
+  const x = new Float32Array(3*224*224);
+  for (let i = 0; i < 224*224; i++){
+    x[i] = px[i*4]/255; x[224*224 + i] = px[i*4+1]/255; x[2*224*224 + i] = px[i*4+2]/255;
+  }
+  const ort = await loadOrt();
+  ort.env.wasm.numThreads = 1;
+  const sess = await ort.InferenceSession.create(oc.bytes, {executionProviders: ['wasm']});
+  const out = await sess.run({images: new ort.Tensor('float32', x, [1, 3, 224, 224])});
+  const refP = tf.tidy(() => head.predict(embed(cv).expandDims(0)).squeeze());
+  const ref = await refP.array(); refP.dispose();
+  let d = 0;
+  ref.forEach((v, i) => { d = Math.max(d, Math.abs(v - out.probs.data[i])); });
+  oc.check = {ok: d < 2e-3, diff: d, outputs: sess.outputNames};
+  return oc.check;
+}
+function checkText(c){
+  if (!c) return '';
+  return c.ok ? t(`ONNX verified in this browser ✔ (onnxruntime vs TF.js, max diff ${c.diff.toExponential(1)})`,
+                  `ตรวจ ONNX ในเบราว์เซอร์แล้ว ✔ (onnxruntime เทียบ TF.js ต่างกันสูงสุด ${c.diff.toExponential(1)})`)
+              : t(`⚠ ONNX differs from the browser model (max diff ${c.diff.toFixed(4)}) - please report this`,
+                  `⚠ ONNX ให้ผลต่างจากโมเดลในเบราว์เซอร์ (ต่างสูงสุด ${c.diff.toFixed(4)}) - กรุณาแจ้งทีม`);
+}
+async function onnxWithCheck(m){
+  m.className = 'msg';
+  m.textContent = t('Building model.onnx...', 'กำลังสร้าง model.onnx...');
+  await tf.nextFrame();
+  const oc = await buildOnnx();
+  let note = '';
+  try { await selfCheck(oc); note = checkText(oc.check); }
+  catch (e) { note = t('(self-check skipped: ' + e.message + ')', '(ข้ามการตรวจ: ' + e.message + ')'); }
+  return {oc, note};
+}
+function download(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function deployConfig(oc){
+  const det = task === 'detect' && !!boxHead;
+  return {
+    model: 'model.onnx', task: det ? 'detection' : 'classification', input: 224,
+    classes: head.classNames.slice(),
+    background_classes: head.classNames.filter(n => TESR_ONNX.isBackground(n)),
+    detect_mode: det ? document.getElementById('tgtMode').value : 'classify',
+    min_conf: +document.getElementById('minConf').value,
+    target: document.getElementById('tgt').value,
+    camera: document.getElementById('tgtCam').value, camera_index: 0,
+    prototypes: protos ? {names: protos.names, threshold: +protos.thr.toFixed(3),
+                          centroids: protos.C.map(c => c.map(v => +v.toFixed(5)))} : null,
+    onnx: {input: 'images [1,3,224,224] RGB 0..1 (stretch-resize)', outputs: oc.info.outputs,
+           windows: oc.info.windows},
+    generatedBy: 'TESR AI Vision Web Trainer',
+  };
+}
+
+async function exportModel(){
+  if (!head) return;
+  const m = document.getElementById('eMsg');
+  try {
+    const {oc, note} = await onnxWithCheck(m);
+    const tg = document.getElementById('tgt').value;
+    const dir = 'tesr-model-' + tg + '/';
+    const F = window.TESR_EDGE_FILES || {};
+    const zip = new JSZip();
+    const cfg = deployConfig(oc);
+    zip.file(dir + 'model.onnx', oc.bytes);
+    // readable config, but keep the long prototype vectors on single lines
+    zip.file(dir + 'config.json', JSON.stringify(Object.assign({}, cfg, {prototypes: '__PROTOS__'}), null, 2)
+      .replace('"__PROTOS__"', JSON.stringify(cfg.prototypes)));
+    zip.file(dir + 'classes.txt', head.classNames.join('\n'));
+    zip.file(dir + 'predict.py', F['predict.py']);
+    const header = '> **This export:** ' + TARGETS[tg].label + ' · camera: **' + cfg.camera.toUpperCase()
+      + '** · task: **' + cfg.task + '**' + (cfg.task === 'detection' ? ' · mode: **' + cfg.detect_mode + '**' : '')
+      + ' · classes: ' + cfg.classes.join(', ') + '\n\n';
+    zip.file(dir + 'README_DEPLOY.md', header + F['README_DEPLOY.md']);
+    const sh = name => zip.file(dir + name, F[name], {unixPermissions: '755'});
+    if (tg === 'pc'){
+      zip.file(dir + 'requirements.txt', F['requirements.txt']);
+      zip.file(dir + 'install_windows.bat', F['install_windows.bat'].replace(/\r?\n/g, '\r\n'));
+      sh('install_linux.sh');
+      await addLegacyTF(zip, dir + 'legacy_tensorflow/');
+    } else if (tg === 'pi5'){
+      sh('install_pi.sh');
+    } else {
+      sh('install_jetson.sh'); sh('build_trt.sh');
+    }
+    const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
+    download(blob, 'tesr-model-' + tg + '.zip');
+    m.innerHTML = t(`Downloaded <b>tesr-model-${tg}.zip</b> — copy the folder to the device, run the installer, then <code>python predict.py</code> (see README_DEPLOY.md). `,
+                    `ดาวน์โหลด <b>tesr-model-${tg}.zip</b> แล้ว — คัดลอกโฟลเดอร์ไปที่อุปกรณ์ รันตัวติดตั้ง แล้ว <code>python predict.py</code> (ดู README_DEPLOY.md) `) + note;
+  } catch (e) {
+    m.className = 'msg err';
+    m.textContent = 'Export failed: ' + e.message;
+  }
+}
+async function exportOnnxOnly(){
+  if (!head) return;
+  const m = document.getElementById('eMsg');
+  try {
+    const {oc, note} = await onnxWithCheck(m);
+    download(new Blob([oc.bytes], {type: 'application/octet-stream'}), 'model.onnx');
+    m.innerHTML = t(`Downloaded <b>model.onnx</b> (${(oc.bytes.length/1048576).toFixed(1)} MB, outputs: ${oc.info.outputs.join(', ')}; classes in order: ${head.classNames.join(', ')}). `,
+                    `ดาวน์โหลด <b>model.onnx</b> แล้ว (${(oc.bytes.length/1048576).toFixed(1)} MB, outputs: ${oc.info.outputs.join(', ')}; ลำดับคลาส: ${head.classNames.join(', ')}) `) + note;
+  } catch (e) {
+    m.className = 'msg err';
+    m.textContent = 'ONNX export failed: ' + e.message;
+  }
+}
+
+/* ============ hand-off to TESR ROI Studio ============
+   Both tools are served from tesr-channel.github.io (same origin), so the
+   model is written straight into ROI Studio's own model library
+   (IndexedDB "tesr_roi_studio" / store "models") - it shows up under
+   "My models" the moment ROI Studio opens. */
+const ROI_STUDIO_URL = 'https://tesr-channel.github.io/AI_ROI_Designer/';
+function roiStudioDB(){
+  return new Promise((res, rej) => {
+    if (typeof indexedDB === 'undefined') return rej(new Error('IndexedDB not available'));
+    const make = ver => {
+      let rq;
+      try { rq = ver ? indexedDB.open('tesr_roi_studio', ver) : indexedDB.open('tesr_roi_studio'); }
+      catch(e){ return rej(e); }
+      rq.onupgradeneeded = () => {
+        if (!rq.result.objectStoreNames.contains('models'))
+          rq.result.createObjectStore('models', {keyPath: 'id'});
+      };
+      rq.onsuccess = () => {
+        const db = rq.result;
+        if (!db.objectStoreNames.contains('models')) { db.close(); return rej(new Error('ROI Studio model store missing')); }
+        res(db);
+      };
+      rq.onerror = () => { if (ver) make(0); else rej(rq.error); };
+    };
+    make(1);          // same version ROI Studio opens with; falls back if it was upgraded
+  });
+}
+async function sendToRoiStudio(){
+  if (!head) return;
+  const m = document.getElementById('eMsg');
+  const sameOrigin = location.origin === new URL(ROI_STUDIO_URL).origin;
+  const win = window.open('', '_blank');          // open now so the popup is not blocked
+  try {
+    const {oc, note} = await onnxWithCheck(m);
+    const det = task === 'detect' && !!boxHead;
+    const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    const rec = {
+      id: 'tr' + Date.now().toString(36),
+      name: 'Web Trainer ' + (det ? 'detect' : 'classify') + ' ' + stamp,
+      type: det ? 'detect' : 'classify', size: 224,
+      conf: +document.getElementById('minConf').value, iou: 0.45,
+      names: head.classNames.slice(), deploy: 'model.onnx', bytes: oc.bytes,
+    };
+    if (sameOrigin){
+      const db = await roiStudioDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction('models', 'readwrite');
+        tx.objectStore('models').put(rec);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+      db.close();
+      if (win) win.location.href = ROI_STUDIO_URL; else window.open(ROI_STUDIO_URL, '_blank');
+      m.innerHTML = t(`✔ Sent to ROI Studio as <b>${rec.name}</b> — in ROI Studio: draw an ROI → task <b>YOLO ${rec.type}</b> → pick this model. When you export there, copy <code>model.onnx</code> next to the runner. `,
+                      `✔ ส่งเข้า ROI Studio แล้วชื่อ <b>${rec.name}</b> — ใน ROI Studio: วาดกรอบ ROI → เลือกงาน <b>YOLO ${rec.type}</b> → เลือกโมเดลนี้ ตอน export ให้คัดลอก <code>model.onnx</code> ไปวางข้าง runner `) + note;
+    } else {
+      // opened from a file or another host: browsers keep storage per site, so hand the file over instead
+      download(new Blob([oc.bytes], {type: 'application/octet-stream'}), 'model.onnx');
+      if (win) win.location.href = ROI_STUDIO_URL; else window.open(ROI_STUDIO_URL, '_blank');
+      m.innerHTML = t(`Downloaded <b>model.onnx</b> and opened ROI Studio. There: <b>+ Add a trained model</b> → pick the file → type <b>${det ? 'Object Detection' : 'Image Classification'}</b>, size <b>224</b>, classes: <code>${head.classNames.join(', ')}</code>. (Direct hand-off works when this page runs from tesr-channel.github.io.) `,
+                      `ดาวน์โหลด <b>model.onnx</b> และเปิด ROI Studio แล้ว ที่นั่นกด <b>+ เพิ่มโมเดลที่เทรนแล้ว</b> → เลือกไฟล์ → ชนิด <b>${det ? 'Object Detection' : 'Image Classification'}</b> ขนาด <b>224</b> คลาส: <code>${head.classNames.join(', ')}</code> (ส่งตรงอัตโนมัติได้เมื่อเปิดหน้านี้จาก tesr-channel.github.io) `) + note;
+    }
+  } catch (e) {
+    if (win) win.close();
+    m.className = 'msg err';
+    m.textContent = 'Send to ROI Studio failed: ' + e.message;
   }
 }
 
@@ -1901,47 +2311,33 @@ async function saveModelTo(model, weightsName){
   });
   return {json, weights: artifacts.weightData};
 }
-async function exportModel(){
-  if (!head) return;
-  const m = document.getElementById('eMsg');
-  m.textContent = 'Building your export zip...';
-  try {
-    const zip = new JSZip();
-    const cls = await saveModelTo(head, 'weights.bin');
-    zip.file('model.json', cls.json);
-    zip.file('weights.bin', cls.weights);
-    if (boxHead){
-      const bm = await saveModelTo(boxHead, 'box_weights.bin');
-      zip.file('box_model.json', bm.json);
-      zip.file('box_weights.bin', bm.weights);
-    }
-    zip.file('classes.txt', head.classNames.join('\n'));
-    zip.file('config.json', JSON.stringify({
-      task: boxHead ? 'detection' : 'classification',
-      norm: 'pm1', input: 224,
-      generatedBy: 'TESR AI Vision Web Trainer'}, null, 2));
-    if (protos) zip.file('prototypes.json', JSON.stringify({
-      names: protos.names,
-      centroids: protos.C.map(c => c.map(v => +v.toFixed(5))),
-      threshold: +protos.thr.toFixed(3),
-    }));
-    zip.file('predict.py', PY_CODE);
-    zip.file('requirements.txt', PY_REQS);
-    zip.file('README_PYTHON.md', PY_README);
-    zip.file('install_windows.bat', PY_BAT);
-    zip.file('install_linux.sh', PY_SH);
-    const blob = await zip.generateAsync({type: 'blob'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'tesr-web-model.zip';
-    a.click();
-    m.textContent = 'Downloaded tesr-web-model.zip \u2014 unzip it and follow README_PYTHON.md';
-  } catch (e) {
-    m.textContent = 'Export failed: ' + e.message;
+/* the previous TensorFlow-based Python export, kept for PCs that already use it */
+async function addLegacyTF(zip, dir){
+  const cls = await saveModelTo(head, 'weights.bin');
+  zip.file(dir + 'model.json', cls.json);
+  zip.file(dir + 'weights.bin', cls.weights);
+  if (boxHead && task === 'detect'){
+    const bm = await saveModelTo(boxHead, 'box_weights.bin');
+    zip.file(dir + 'box_model.json', bm.json);
+    zip.file(dir + 'box_weights.bin', bm.weights);
   }
+  zip.file(dir + 'classes.txt', head.classNames.join('\n'));
+  zip.file(dir + 'config.json', JSON.stringify({
+    task: (boxHead && task === 'detect') ? 'detection' : 'classification',
+    norm: 'pm1', input: 224, generatedBy: 'TESR AI Vision Web Trainer'}, null, 2));
+  if (protos) zip.file(dir + 'prototypes.json', JSON.stringify({
+    names: protos.names,
+    centroids: protos.C.map(c => c.map(v => +v.toFixed(5))),
+    threshold: +protos.thr.toFixed(3),
+  }));
+  zip.file(dir + 'predict.py', PY_CODE);
+  zip.file(dir + 'requirements.txt', PY_REQS);
+  zip.file(dir + 'README_PYTHON.md', PY_README);
+  zip.file(dir + 'install_windows.bat', PY_BAT);
+  zip.file(dir + 'install_linux.sh', PY_SH);
 }
 
-checkHW(); applyLang();
+checkHW(); syncTargetUI(true); applyLang();
 </script>
 </body>
 </html>

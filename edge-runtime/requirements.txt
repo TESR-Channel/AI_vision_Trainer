@@ -1,0 +1,5 @@
+# TESR web model runtime - PC (Windows / Linux / macOS), Python 3.8+
+# Raspberry Pi and Jetson: use install_pi.sh / install_jetson.sh instead
+onnxruntime
+numpy
+opencv-python
