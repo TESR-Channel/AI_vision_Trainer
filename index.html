@@ -1647,6 +1647,7 @@ async function exportModel(){
     const header = '> **This export:** ' + TARGETS[tg].label + ' · camera: **' + cfg.camera.toUpperCase()
       + '** · task: **' + cfg.task + '**' + (cfg.task === 'detection' ? ' · mode: **' + cfg.detect_mode + '**' : '')
       + ' · classes: ' + cfg.classes.join(', ') + '\n\n';
+    zip.file(dir + 'START_HERE.md', header + F['START_HERE.md']);
     zip.file(dir + 'README_DEPLOY.md', header + F['README_DEPLOY.md']);
     const sh = name => zip.file(dir + name, F[name], {unixPermissions: '755'});
     if (tg === 'pc'){
@@ -1661,8 +1662,8 @@ async function exportModel(){
     }
     const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
     download(blob, 'tesr-model-' + tg + '.zip');
-    m.innerHTML = t(`Downloaded <b>tesr-model-${tg}.zip</b> — copy the folder to the device, run the installer, then <code>python predict.py</code> (see README_DEPLOY.md). `,
-                    `ดาวน์โหลด <b>tesr-model-${tg}.zip</b> แล้ว — คัดลอกโฟลเดอร์ไปที่อุปกรณ์ รันตัวติดตั้ง แล้ว <code>python predict.py</code> (ดู README_DEPLOY.md) `) + note;
+    m.innerHTML = t(`Downloaded <b>tesr-model-${tg}.zip</b> — open <b>START_HERE.md</b> first: pick your case (PC, Pi, Jetson, TensorRT, your own code, ROI Studio) and follow 3–4 lines. `,
+                    `ดาวน์โหลด <b>tesr-model-${tg}.zip</b> แล้ว — เปิด <b>START_HERE.md</b> ก่อน: เลือกเคสของคุณ (คอม, Pi, Jetson, TensorRT, ใส่ในโค้ดเอง, ROI Studio) แล้วทำตาม 3–4 บรรทัด `) + note;
   } catch (e) {
     m.className = 'msg err';
     m.textContent = 'Export failed: ' + e.message;
@@ -1833,7 +1834,7 @@ async function exportDataset(){
       zip.file('dataset/data.yaml',
         'path: .\ntrain: images/train\nval: images/val\nnames:\n' +
         names.map((nm, i) => '  ' + i + ': ' + nm).join('\n') + '\n');
-    zip.file('dataset/README_DATASET.md', DS_README);
+    zip.file('dataset/START_HERE.md', (window.TESR_EDGE_FILES || {})['START_HERE_DATASET.md'] || DS_README);
     const blob = await zip.generateAsync({type: 'blob'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -1842,7 +1843,7 @@ async function exportDataset(){
     m.textContent = 'Downloaded ' + n + ' photos (' + (n - nAug) + ' real + ' + nAug
       + ' generated \u2728 \u2192 train only) as tesr-dataset-yolo.zip'
       + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
-      + ' \u2014 open README_DATASET.md inside for the 3 offline steps.';
+      + ' \u2014 open START_HERE.md inside: train on your PC or on a Jetson Orin Nano, then deploy.';
   } catch (e) {
     m.textContent = 'Export failed: ' + e.message;
   }

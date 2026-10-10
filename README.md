@@ -40,6 +40,9 @@ files, auto-augment small datasets, train in seconds, test live, and export.
      [TESR ROI Studio](https://tesr-channel.github.io/AI_ROI_Designer/) → *My models*.
    - **Download Dataset (YOLO)** — your photos + labels, ready for real YOLO training below.
 
+   Every zip opens with a short **`START_HERE.md`** (Thai + English): pick your case —
+   PC, Pi 5, Jetson, TensorRT, your own code, ROI Studio, train on PC or on the Jetson itself.
+
 ### What's inside model.onnx
 
 Built **in the browser** from the exact weights you trained (MobileNetV2 backbone
