@@ -198,7 +198,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       load the project back, add the new class, capture its photos, press Train again
       &mdash; then re-download the YOLO dataset so the offline model learns the new
       class too.
-      <b>Every export zip</b> (Download for Device, Download Dataset) also contains the
+      <b>Every export zip</b> (Download Model, Download Dataset) also contains the
       project &mdash; Load Project accepts those zips too.
     </div>
     <div class="row">
@@ -328,20 +328,19 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       </div>
       <div>
         <div class="note" id="expNote" style="margin-top:0">
-          <b>Export for your device</b> &mdash; one standard <code>model.onnx</code> (backbone + your
-          trained heads) plus a ready-to-run <code>predict.py</code> that needs only
-          <code>onnxruntime</code> + OpenCV &mdash; no TensorFlow. Pick the device and camera; the zip
-          comes with the matching installer and <code>README_DEPLOY.md</code>.
+          <b>One flow:</b> Download Model &rarr; on your computer: install, <code>python predict.py</code>
+          &rarr; <code>python export.py --target pi</code> or <code>--target jetson</code> &rarr; copy to the
+          board, install, <code>python predict.py</code>. Open <code>START_HERE.md</code> in the zip.
         </div>
         <div class="row" style="margin-top:14px;align-items:flex-end">
-          <div><label class="tag">Deploy to</label><br>
+          <div style="display:none"><label class="tag">Deploy to</label><br>
             <select id="tgt" style="width:270px" onchange="syncTargetUI()">
               <option value="pc">PC &mdash; Windows / Linux / macOS</option>
               <option value="pi5">Raspberry Pi 5</option>
               <option value="jetson">NVIDIA Jetson Orin Nano / NX / AGX</option>
               <option value="jetson_nano">Jetson Nano (JetPack 4 &middot; experimental)</option>
             </select></div>
-          <div><label class="tag">Camera</label><br>
+          <div style="display:none"><label class="tag">Camera</label><br>
             <select id="tgtCam" style="width:200px" onchange="saveTargetUI()">
               <option value="usb">USB webcam</option>
               <option value="csi">CSI ribbon camera</option>
@@ -355,7 +354,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         </div>
         <div class="hint" id="tgtHint"></div>
         <div class="row" style="margin-top:14px">
-          <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download for Device (.zip)</button>
+          <button onclick="exportModel()" id="btnExport" disabled>&#128190; Download Model (.zip)</button>
           <button class="gold" onclick="exportOnnxOnly()" id="btnOnnx" disabled>&#11015; ONNX only</button>
           <button class="gold" onclick="sendToRoiStudio()" id="btnRoi" disabled>&#127919; Send to ROI Studio</button>
         </div>
@@ -994,9 +993,9 @@ async function loadProject(file){
       .filter(k => /(^|\/)project\.json$/.test(k) && !zip.files[k].dir)
       .sort((a, b) => a.length - b.length)[0];
     if (!pjName) throw new Error(t(
-      'no project inside this zip. Use a zip from Save Project, Download for Device or Download Dataset made with this version '
+      'no project inside this zip. Use a zip from Save Project, Download Model or Download Dataset made with this version '
       + '(older model zips only contain the trained model, not your photos).',
-      'ไม่มีโปรเจกต์ใน zip นี้ ใช้ zip จาก Save Project, Download for Device หรือ Download Dataset ของเวอร์ชันนี้ '
+      'ไม่มีโปรเจกต์ใน zip นี้ ใช้ zip จาก Save Project, Download Model หรือ Download Dataset ของเวอร์ชันนี้ '
       + '(zip โมเดลรุ่นเก่ามีแค่โมเดล ไม่มีรูปของคุณ)'));
     const base = pjName.slice(0, pjName.length - 'project.json'.length);
     const pj = zip.file(pjName);
@@ -1706,30 +1705,13 @@ const TARGETS = {
   jetson_nano: {label: 'Jetson Nano (JetPack 4, experimental)', csi: true},
 };
 function syncTargetUI(load){
-  const tg = document.getElementById('tgt'), cam = document.getElementById('tgtCam'),
-        md = document.getElementById('tgtMode');
-  if (load){
-    try{
-      const v = JSON.parse(localStorage.getItem('tesr_target') || '{}');
-      if (v.tgt && TARGETS[v.tgt]) tg.value = v.tgt;
-      if (v.cam) cam.value = v.cam;
-      if (v.mode) md.value = v.mode;
-    }catch(e){}
-  }
-  const T = TARGETS[tg.value];
-  cam.disabled = !T.csi;
-  if (!T.csi) cam.value = 'usb';
-  const hints = {
-    pc: t('Installer: <code>install_windows.bat</code> or <code>install_linux.sh</code>. Any Python 3.8+.',
-          'ตัวติดตั้ง: <code>install_windows.bat</code> หรือ <code>install_linux.sh</code> ใช้ Python 3.8 ขึ้นไปได้หมด'),
-    pi5: t('64-bit Raspberry Pi OS. <code>install_pi.sh</code> uses apt OpenCV + Picamera2 in a venv (no <code>sudo pip</code>). CSI = Picamera2.',
-           'Raspberry Pi OS 64-bit &middot; <code>install_pi.sh</code> ใช้ OpenCV + Picamera2 จาก apt ใน venv (ไม่ใช้ <code>sudo pip</code>) &middot; CSI = Picamera2'),
-    jetson: t('<code>install_jetson.sh</code> (system OpenCV with GStreamer for CSI) + <code>build_trt.sh</code> to build a TensorRT FP16 engine on the board.',
-              '<code>install_jetson.sh</code> (ใช้ OpenCV ของระบบที่มี GStreamer สำหรับ CSI) + <code>build_trt.sh</code> สร้าง TensorRT FP16 engine บนบอร์ด'),
-    jetson_nano: t('Experimental: Jetson Nano is limited to JetPack 4 (Python 3.6, TensorRT 8.2) - newer software does not support it. TensorRT via <code>build_trt.sh</code> is the most reliable path.',
-                   'ทดลอง: Jetson Nano ค้างอยู่ที่ JetPack 4 (Python 3.6, TensorRT 8.2) ซอฟต์แวร์ใหม่ ๆ ไม่รองรับแล้ว ใช้ TensorRT ผ่าน <code>build_trt.sh</code> เสถียรที่สุด'),
-  };
-  document.getElementById('tgtHint').innerHTML = hints[tg.value];
+  // device + camera are chosen later on the computer:  python export.py --target pi|jetson [--camera csi]
+  document.getElementById('tgt').value = 'pc'; document.getElementById('tgtCam').value = 'usb';
+  if (load){ try{ const v = JSON.parse(localStorage.getItem('tesr_target') || '{}');
+    if (v.mode) document.getElementById('tgtMode').value = v.mode; }catch(e){} }
+  document.getElementById('tgtHint').innerHTML = t(
+    'Raspberry Pi / Jetson: export on your computer with <code>python export.py --target pi</code> or <code>--target jetson</code> (add <code>--camera csi</code> for a ribbon camera).',
+    'Raspberry Pi / Jetson: export บนคอมด้วย <code>python export.py --target pi</code> หรือ <code>--target jetson</code> (กล้องสายแพเติม <code>--camera csi</code>)');
   saveTargetUI();
 }
 function saveTargetUI(){
@@ -1852,8 +1834,7 @@ async function exportModel(){
   const m = document.getElementById('eMsg');
   try {
     const {oc, note} = await onnxWithCheck(m);
-    const tg = document.getElementById('tgt').value;
-    const dir = 'tesr-model-' + tg + '/';
+    const dir = 'tesr-model/';
     const F = window.TESR_EDGE_FILES || {};
     const zip = new JSZip();
     const cfg = deployConfig(oc);
@@ -1863,27 +1844,22 @@ async function exportModel(){
       .replace('"__PROTOS__"', JSON.stringify(cfg.prototypes)));
     zip.file(dir + 'classes.txt', head.classNames.join('\n'));
     zip.file(dir + 'predict.py', F['predict.py']);
-    const header = '> **This export:** ' + TARGETS[tg].label + ' · camera: **' + cfg.camera.toUpperCase()
-      + '** · task: **' + cfg.task + '**' + (cfg.task === 'detection' ? ' · mode: **' + cfg.detect_mode + '**' : '')
+    zip.file(dir + 'export.py', F['export.py']);
+    const header = '> **This model:** task **' + cfg.task + '**'
+      + (cfg.task === 'detection' ? ' · mode **' + cfg.detect_mode + '**' : '')
       + ' · classes: ' + cfg.classes.join(', ') + '\n\n';
     zip.file(dir + 'START_HERE.md', header + F['START_HERE.md']);
     zip.file(dir + 'README_DEPLOY.md', header + F['README_DEPLOY.md']);
-    const sh = name => zip.file(dir + name, F[name], {unixPermissions: '755'});
-    if (tg === 'pc'){
-      zip.file(dir + 'requirements.txt', F['requirements.txt']);
-      zip.file(dir + 'install_windows.bat', F['install_windows.bat'].replace(/\r?\n/g, '\r\n'));
-      sh('install_linux.sh');
-      await addLegacyTF(zip, dir + 'legacy_tensorflow/');
-    } else if (tg === 'pi5'){
-      sh('install_pi.sh');
-    } else {
-      sh('install_jetson.sh'); sh('build_trt.sh');
-    }
+    const sh = (path, name) => zip.file(dir + path + name, F[name], {unixPermissions: '755'});
+    zip.file(dir + 'requirements.txt', F['requirements.txt']);
+    zip.file(dir + 'install_windows.bat', F['install_windows.bat'].replace(/\r?\n/g, '\r\n'));
+    sh('', 'install_linux.sh');
+    sh('device_kit/', 'install_pi.sh'); sh('device_kit/', 'install_jetson.sh'); sh('device_kit/', 'build_trt.sh');
     writeProject(zip, dir + 'project/');      // Load Project accepts this zip too
     const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
-    download(blob, 'tesr-model-' + tg + '.zip');
-    m.innerHTML = t(`Downloaded <b>tesr-model-${tg}.zip</b> — open <b>START_HERE.md</b> first: pick your case (PC, Pi, Jetson, TensorRT, your own code, ROI Studio) and follow 3–4 lines. `,
-                    `ดาวน์โหลด <b>tesr-model-${tg}.zip</b> แล้ว — เปิด <b>START_HERE.md</b> ก่อน: เลือกเคสของคุณ (คอม, Pi, Jetson, TensorRT, ใส่ในโค้ดเอง, ROI Studio) แล้วทำตาม 3–4 บรรทัด `) + note;
+    download(blob, 'tesr-model.zip');
+    m.innerHTML = t(`Downloaded <b>tesr-model.zip</b> — open <b>START_HERE.md</b>: 1) install + <code>python predict.py</code> on your computer, 2) <code>python export.py --target pi</code> or <code>jetson</code>, 3) copy to the board. `,
+                    `ดาวน์โหลด <b>tesr-model.zip</b> แล้ว — เปิด <b>START_HERE.md</b>: 1) ติดตั้ง + <code>python predict.py</code> บนคอม 2) <code>python export.py --target pi</code> หรือ <code>jetson</code> 3) ก๊อปไปบอร์ด `) + note;
   } catch (e) {
     m.className = 'msg err';
     m.textContent = 'Export failed: ' + e.message;

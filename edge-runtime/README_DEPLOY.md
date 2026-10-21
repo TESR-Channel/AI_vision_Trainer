@@ -1,23 +1,29 @@
 # Deploy your TESR web-trained model
 
-This folder is everything the device needs. No TensorFlow, no PyTorch -
-only `onnxruntime` + `numpy` + `opencv`.
+One flow: **web (train) -> computer (test + export) -> Raspberry Pi / Jetson (run)**.
+No TensorFlow, no PyTorch - only `onnxruntime` + `numpy` + `opencv`.
 
 | File | What it is |
 |---|---|
 | `model.onnx` | Your model: MobileNetV2 backbone + your trained head(s), input `images [1,3,224,224]` RGB 0..1 |
-| `config.json` | Classes, task, camera type, detection mode, "none" gate |
+| `config.json` | Classes, task, camera type, detection mode, "none" gate, box steadiness |
 | `predict.py` | Runs the model on a camera, image or video |
-| `install_*.sh / .bat` | One-command installers per device |
-| `build_trt.sh` | Jetson only: ONNX -> TensorRT engine (FP32 vs FP16 benchmark) |
+| `export.py` | Packages this model for a device: `python export.py --target pi\|jetson [--camera csi]` |
+| `install_windows.bat / install_linux.sh` | Installers for the computer |
+| `device_kit/` | Device installers used by `export.py` (`install_pi.sh`, `install_jetson.sh`, `build_trt.sh`) |
+| `project/` | Your photos + labels - the web page's **Load Project** opens this zip |
 
-## 1 - Copy the folder to the device
+## 1 - Export for the device (on your computer)
 
 ```bash
-# from your PC (replace user@device-ip)
-scp -r tesr-model-<target> user@device-ip:~/
+python export.py --target pi                  # Raspberry Pi 5, USB camera
+python export.py --target pi --camera csi     # Raspberry Pi 5, ribbon camera
+python export.py --target jetson              # Jetson Orin Nano / NX / AGX
 ```
-(or a USB stick). Then on the device: `cd ~/tesr-model-<target>`
+Result: `exports/tesr-model-<target>.zip` - copy it to the board (USB stick, or
+`scp exports/tesr-model-pi5.zip user@device-ip:~/`) and unzip it there.
+The model file is the same on every device; export only picks the right
+installer and camera.
 
 ## 2 - Install once
 

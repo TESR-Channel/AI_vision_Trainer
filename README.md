@@ -33,7 +33,7 @@ files, auto-augment small datasets, train in seconds, test live, and export.
 5. **Train**, then **Live Test** with your webcam.
 6. **Export** — pick the device (**PC / Raspberry Pi 5 / Jetson Orin / Jetson Nano**)
    and camera (**USB / CSI**), then:
-   - **Download for Device (.zip)** — `model.onnx` + `predict.py` (needs only
+   - **Download Model (.zip)** — `model.onnx` + `predict.py` (needs only
      `onnxruntime` + OpenCV, no TensorFlow) + the matching installer
      (`install_pi.sh`, `install_jetson.sh` + `build_trt.sh`, …) + `README_DEPLOY.md`.
    - **ONNX only** — one standard `model.onnx` (opset 13, input `images [1,3,224,224]`
@@ -106,7 +106,7 @@ and train it offline with YOLO — same photos, same labels, one command.
 4. Export บนคอมพิวเตอร์ (`python export.py --target pi`) แล้วก๊อปโมเดล +
    sample code ที่ระบบสร้างให้ ไปรันบน Raspberry Pi / Jetson
 5. หรือใช้โมเดลจากเว็บโดยตรง: เลือกอุปกรณ์ (PC / Pi 5 / Jetson) + กล้อง (USB / CSI)
-   แล้วกด **Download for Device** ได้ `model.onnx` + `predict.py` + ตัวติดตั้งตรงรุ่น,
+   แล้วกด **Download Model** ได้ `model.onnx` + `predict.py` + ตัวติดตั้งตรงรุ่น,
    **ONNX only** สำหรับบท ONNX → TensorRT หรือ **Send to ROI Studio** ส่งโมเดลไปวาง ROI ต่อได้ทันที
 6. โหมด **Detect multi (beta)** ตรวจจับหลายวัตถุพร้อมกันในเฟรม แต่ละชิ้นได้กรอบ + center
 
