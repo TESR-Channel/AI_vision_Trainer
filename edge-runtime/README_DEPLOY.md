@@ -68,6 +68,7 @@ bash build_trt.sh     # builds model_fp32.engine + model_fp16.engine and prints 
 ## Troubleshooting
 
 - **Everything is "none"** -> `--min-conf 0.5`, or `--proto-th 0.6`, or `--no-proto`; collect more varied photos
+- **Box shakes** -> it is steadied by default (smoothing + mirror-average + hold); steadier: `--smooth 0.25`; less lag for a fast robot: `--smooth 0.7`; raw: `--smooth 1 --tta off --hold 0`
 - **Multi mode finds nothing** -> `--min-conf 0.4`; train a `background` class of the empty scene
 - **Multi mode shows the same object twice** -> raise overlap merging: `--iou 0.3`
 - **CSI on Jetson fails** -> `gst-launch-1.0 nvarguscamerasrc ! fakesink` must work first; use the system OpenCV (has GStreamer), not pip's

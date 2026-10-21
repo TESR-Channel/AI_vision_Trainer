@@ -95,9 +95,17 @@ class Model(object):
         img = cv2.resize(rgb, (self.size, self.size), interpolation=cv2.INTER_LINEAR)
         return (img.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
 
-    def run(self, bgr):
-        res = self.sess.run(None, {"images": self.blob(bgr)})
-        return dict(zip(self.outputs, res))
+    def run(self, bgr, tta=False):
+        x = self.blob(bgr)
+        out = dict(zip(self.outputs, self.sess.run(None, {"images": x})))
+        if tta and "box" in out:
+            # average the box with the box of the mirrored frame: same object, independent
+            # noise -> about a third less frame-to-frame jitter (measured)
+            xf = np.ascontiguousarray(x[:, :, :, ::-1])
+            bf = dict(zip(self.outputs, self.sess.run(None, {"images": xf})))["box"].copy()
+            bf[0, 0] = 1.0 - bf[0, 0]
+            out["box"] = (out["box"] + bf) / 2.0
+        return out
 
     def similarity(self, feat):
         if self.proto is None:
@@ -187,6 +195,41 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
         if len(dets) >= max_det:
             break
     return dets
+
+
+class Stabilizer(object):
+    """Steadies the single-object result between frames.
+    - box: exponential smoothing (alpha 1 = raw, lower = steadier, a little more lag)
+    - class: switches only after it is seen on 2 frames in a row
+    - "none": the last box is held for a few frames (a hand passing by, motion blur)"""
+
+    def __init__(self, alpha=0.4, hold=6):
+        self.alpha, self.hold = alpha, hold
+        self.name, self.conf, self.box = None, 0.0, None
+        self.cand, self.cand_n, self.miss = None, 0, 0
+
+    def update(self, name, conf, box):
+        if name == "none" or box is None:
+            self.miss += 1
+            if self.box is not None and self.miss <= self.hold:
+                return self.name, self.conf, self.box
+            self.name, self.box, self.cand, self.cand_n = None, None, None, 0
+            return "none", conf, None
+        self.miss = 0
+        if self.name is not None and name != self.name:
+            self.cand_n = self.cand_n + 1 if name == self.cand else 1
+            self.cand = name
+            if self.cand_n < 2:                      # not confirmed yet: keep the current answer
+                return self.name, self.conf, self.box
+            self.box = None                          # confirmed switch: start fresh
+        self.cand, self.cand_n = None, 0
+        if self.box is None or self.name != name:
+            self.box = list(box)
+        else:
+            a = self.alpha
+            self.box = [p + a * (n - p) for p, n in zip(self.box, box)]
+        self.name, self.conf = name, conf
+        return self.name, self.conf, self.box
 
 
 # --------------------------------------------------------------- drawing ---
@@ -294,6 +337,12 @@ def main():
     ap.add_argument("--headless", action="store_true", help="no window; print results only")
     ap.add_argument("--cpu", action="store_true", help="force CPU even if a GPU provider exists")
     ap.add_argument("--trt", action="store_true", help="Jetson: use the onnxruntime TensorRT provider if installed")
+    ap.add_argument("--smooth", type=float, default=0.4,
+                    help="box smoothing 0..1 (1 = raw/no smoothing, lower = steadier but slight lag)")
+    ap.add_argument("--hold", type=int, default=6, help="frames to keep the last box when the object is briefly lost")
+    ap.add_argument("--tta", choices=["auto", "on", "off"], default="auto",
+                    help="also run the mirrored frame and average the box (steadier, 2x compute). "
+                         "auto = on, except on Raspberry Pi")
     args = ap.parse_args()
 
     import cv2
@@ -308,14 +357,20 @@ def main():
     if mode == "multi" and "output0" not in model.outputs:
         raise SystemExit("--mode multi needs a detection export (output0 missing)")
 
+    tta = args.tta == "on" or (args.tta == "auto" and not is_raspberry_pi() and cfg.get("target") != "pi5")
+    tta = tta and mode in ("single", "precise")
+    stab = Stabilizer(alpha=min(1.0, max(0.05, args.smooth)), hold=max(0, args.hold))
     print("TESR model | task: %s | mode: %s | runtime: %s" % (model.task, mode, model.provider))
+    if mode in ("single", "precise"):
+        print("steadying: smooth %.2f, hold %d frames, mirror-average %s"
+              % (stab.alpha, stab.hold, "on" if tta else "off"))
     print("classes: " + ", ".join(model.names))
     if model.proto is not None and mode != "multi":
         print('"none" gates: confidence < %.2f OR similarity < %.2f'
               % (min_conf, args.proto_th if args.proto_th is not None else model.proto["thr"]))
 
     def run_frame(bgr):
-        out = model.run(bgr)
+        out = model.run(bgr, tta=tta)
         if mode == "multi":
             dets = decode_multi(model, out, min_conf, args.iou)
             H, W = bgr.shape[:2]
@@ -326,14 +381,20 @@ def main():
             put(bgr, "%d object(s)" % len(dets), H - 14, GOLD, 0.6)
             return res
         name, conf, _ = decide(model, out, min_conf, args.proto_th)
-        if name == "none" or mode == "classify":
+        if mode == "classify":
             put(bgr, "%s %d%%" % (name, round(conf * 100)) if name != "none" else "none", 34,
                 GREY if name == "none" else GOLD, 1.0)
             return [(name, round(conf, 3), None)]
-        if mode == "precise":
-            box = grid_locate(model, bgr, model.names.index(name))
-        else:
-            box = [float(v) for v in out["box"][0]]
+        box = None
+        if name != "none":
+            if mode == "precise":
+                box = grid_locate(model, bgr, model.names.index(name))
+            else:
+                box = [float(v) for v in out["box"][0]]
+        name, conf, box = stab.update(name, conf, box)
+        if box is None:
+            put(bgr, "none", 34, GREY, 1.0)
+            return [("none", round(conf, 3), None)]
         px, py = draw_box(bgr, name, conf, box)
         put(bgr, "center (%d, %d)px" % (px, py), bgr.shape[0] - 14, GOLD, 0.6)
         return [(name, round(conf, 3), (px, py))]

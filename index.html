@@ -1155,10 +1155,15 @@ function fmapOf(el){ return tf.tidy(() => net.model.execute(bbInput(el), fmapNod
 async function predictEl(el){
   let ft, sBox = null;
   if (boxHeadS){
-    const fm = fmapOf(el);
-    ft = tf.tidy(() => fm.mean([1, 2]).squeeze());           // == the embedding (AvgPool of this map)
-    const bt = tf.tidy(() => boxHeadS.predict(fm).squeeze());
-    sBox = await bt.array(); bt.dispose(); fm.dispose();
+    // one batch = the frame + its mirror; the two boxes are averaged (steadier box)
+    const fm = tf.tidy(() => {
+      const x = bbInput(el);
+      return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode());
+    });
+    ft = tf.tidy(() => fm.slice([0, 0, 0, 0], [1, -1, -1, -1]).mean([1, 2]).squeeze());
+    const bt = tf.tidy(() => boxHeadS.predict(fm));
+    const [b0, b1] = await bt.array(); bt.dispose(); fm.dispose();
+    sBox = [(b0[0] + 1 - b1[0])/2, (b0[1] + b1[1])/2, (b0[2] + b1[2])/2, (b0[3] + b1[3])/2];
   } else ft = tf.tidy(() => embed(el));
   const pt = tf.tidy(() => head.predict(ft.expandDims(0)).squeeze());
   const vals = await pt.array(); pt.dispose();
