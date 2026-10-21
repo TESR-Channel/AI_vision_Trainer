@@ -308,6 +308,23 @@
   }
 
   /* ---------------- dense heads (tf.Sequential of Dense layers) ---------------- */
+  /* spatial box head: Conv2D 1x1 on the [G,G,C] map -> Flatten (NHWC order) -> Dense... */
+  function emitSpatialHead(g, fmapName, C, G, seq) {
+    const conv = seq.layers.find(l => l.getClassName() === 'Conv2D');
+    const [k, b] = conv.getWeights();                      // k: [1,1,C,F]
+    const F = k.shape[3], kd = k.dataSync();
+    if (k.shape[0] !== 1 || k.shape[1] !== 1 || k.shape[2] !== C) throw new Error('unexpected spatial head ' + k.shape);
+    const Wt = new Float32Array(F * C);
+    for (let c = 0; c < C; c++) for (let f = 0; f < F; f++) Wt[f * C + c] = kd[c * F + f];
+    let y = g.op('Conv', [fmapName, g.init('sbox_w', [F, C, 1, 1], Wt), g.f('sbox_b', [F], b.dataSync())],
+                 {kernel_shape: {ints: [1, 1]}, strides: {ints: [1, 1]}, pads: {ints: [0, 0, 0, 0]}});
+    const act = (conv.getConfig().activation || 'linear').toLowerCase();
+    if (act === 'relu') y = g.op('Relu', [y]);
+    else if (act !== 'linear') throw new Error('unsupported spatial activation ' + act);
+    y = g.op('Transpose', [y], {perm: {ints: [0, 2, 3, 1]}});               // NCHW -> NHWC like tf.flatten
+    y = g.op('Reshape', [y, g.i64('shape', [1, G * G * F])]);
+    return emitHead(g, y, denseLayers(seq), 'sigmoid');
+  }
   function denseLayers(seq) {
     return seq.layers.filter(l => l.getClassName() === 'Dense').map(l => {
       const [k, b] = l.getWeights();
@@ -347,7 +364,7 @@
 
   /* ---------------- public: build the full model ---------------- */
   function buildModel(opts) {
-    const {net, head, boxHead, protos, task} = opts;
+    const {net, head, boxHead, boxHeadS, protos, task} = opts;
     const size = 224;
     const g = new Graph();
     const names = head.classNames.slice();
@@ -418,7 +435,9 @@
 
       g.out('Identity', [emitHead(g, feat, clsL, 'softmax')], {}, 'probs');
       outputs.push({name: 'probs', dims: [1, nc]});
-      g.out('Identity', [emitHead(g, feat, boxL, 'sigmoid')], {}, 'box');
+      const boxOut = boxHeadS ? emitSpatialHead(g, fmap.name, C, G, boxHeadS)
+                              : emitHead(g, feat, boxL, 'sigmoid');
+      g.out('Identity', [boxOut], {}, 'box');
       outputs.push({name: 'box', dims: [1, 4]});
     } else {
       g.out('Identity', [emitHead(g, feat, clsL, 'softmax')], {}, 'probs');
