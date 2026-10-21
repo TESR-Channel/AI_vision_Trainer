@@ -353,8 +353,15 @@
     const names = head.classNames.slice();
     const nc = names.length;
 
-    // images (0..1) -> [-1,1], same as mobilenet.infer() in TF.js
-    const xin = g.op('Add', [g.op('Mul', ['images', g.f('two', [], [2])]), g.f('minus1', [], [-1])], {}, 'x_norm');
+    // Reproduce mobilenet.infer() EXACTLY: pixel(0..255) * normalizationConstant + inputMin.
+    // TF-Hub MobileNet models use inputRange [0,1] (their graph rescales to [-1,1]
+    // internally), so for them this is identity on our 0..1 input. Never hard-code it.
+    const nConst = (typeof net.normalizationConstant === 'number') ? net.normalizationConstant : 1 / 255;
+    const nMin = (typeof net.inputMin === 'number') ? net.inputMin : 0;
+    const scale = nConst * 255;
+    let xin = 'images';
+    if (Math.abs(scale - 1) > 1e-7) xin = g.op('Mul', [xin, g.f('in_scale', [], [scale])], {}, 'x_scaled');
+    if (Math.abs(nMin) > 1e-7) xin = g.op('Add', [xin, g.f('in_min', [], [nMin])], {}, 'x_norm');
     const where = findFeatureNode(net.model);
     const fmap = convertBackbone(g, net.model, xin, size, where.fmap);
     const [C, G, G2] = fmap.shape;
@@ -424,6 +431,7 @@
       task: task === 'detect' ? 'detect' : 'classify',
       imgsz: JSON.stringify([size, size]),
       preprocess: 'RGB, resize (stretch) to 224x224, /255, NCHW',
+      input_scale: String(scale), input_min: String(nMin),
       author: 'TESR AI Vision Web Trainer',
     };
     const bytes = g.serialize({name: 'images', dims: [1, 3, size, size]}, outputs, meta);

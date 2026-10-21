@@ -198,6 +198,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       load the project back, add the new class, capture its photos, press Train again
       &mdash; then re-download the YOLO dataset so the offline model learns the new
       class too.
+      <b>Every export zip</b> (Download for Device, Download Dataset) also contains the
+      project &mdash; Load Project accepts those zips too.
     </div>
     <div class="row">
       <input type="text" id="newCls" placeholder="Class name, e.g. jetson_board" style="width:260px">
@@ -935,6 +937,25 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
 }
 
 /* ============ project save / load (continue later, add classes later) ============ */
+/* writes photos + labels + project.json under `base` - the exact format Load Project reads.
+   Used by Save Project AND by every export, so any TESR zip can be loaded back. */
+function writeProject(zip, base){
+  const meta = {app:'tesr-ai-vision', version:1, task, classes:[]};
+  let n = 0;
+  classes.forEach((c,ci)=>{
+    const mc = {name:c.name, examples:[]};
+    c.examples.forEach((e,ei)=>{
+      if (e.aug) return;                         // \u2728 images are regenerated, not stored
+      const f = 'images/' + ci + '_' + ei + '.jpg';
+      zip.file(base + f, e.src.split(',')[1], {base64:true});
+      mc.examples.push({file:f, box:e.box || null, w:e.w, h:e.h});
+      n++;
+    });
+    meta.classes.push(mc);
+  });
+  zip.file(base + 'project.json', JSON.stringify(meta));
+  return n;
+}
 async function saveProject(){
   const m = document.getElementById('projMsg');
   const real = classes.reduce((n,c)=>n + c.examples.filter(e=>!e.aug).length, 0);
@@ -942,23 +963,9 @@ async function saveProject(){
   m.textContent = 'Building project zip...';
   try{
     const zip = new JSZip();
-    const meta = {app:'tesr-ai-vision', version:1, task, classes:[]};
-    classes.forEach((c,ci)=>{
-      const mc = {name:c.name, examples:[]};
-      c.examples.forEach((e,ei)=>{
-        if (e.aug) return;                       // \u2728 images are regenerated, not stored
-        const f = 'images/' + ci + '_' + ei + '.jpg';
-        zip.file('project/' + f, e.src.split(',')[1], {base64:true});
-        mc.examples.push({file:f, box:e.box || null, w:e.w, h:e.h});
-      });
-      meta.classes.push(mc);
-    });
-    zip.file('project/project.json', JSON.stringify(meta));
+    writeProject(zip, 'project/');
     const blob = await zip.generateAsync({type:'blob'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'tesr-project.zip';
-    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    download(blob, 'tesr-project.zip');
     m.textContent = 'Saved ' + real + ' photos in tesr-project.zip \u2014 load it any time to continue.';
   }catch(err){ m.textContent = 'Save failed: ' + err.message; }
 }
@@ -969,8 +976,16 @@ async function loadProject(file){
   m.textContent = 'Reading project...';
   try{
     const zip = await JSZip.loadAsync(file);
-    const pj = zip.file('project/project.json');
-    if (!pj) throw new Error('not a TESR project zip (project.json missing)');
+    const pjName = Object.keys(zip.files)
+      .filter(k => /(^|\/)project\.json$/.test(k) && !zip.files[k].dir)
+      .sort((a, b) => a.length - b.length)[0];
+    if (!pjName) throw new Error(t(
+      'no project inside this zip. Use a zip from Save Project, Download for Device or Download Dataset made with this version '
+      + '(older model zips only contain the trained model, not your photos).',
+      'ไม่มีโปรเจกต์ใน zip นี้ ใช้ zip จาก Save Project, Download for Device หรือ Download Dataset ของเวอร์ชันนี้ '
+      + '(zip โมเดลรุ่นเก่ามีแค่โมเดล ไม่มีรูปของคุณ)'));
+    const base = pjName.slice(0, pjName.length - 'project.json'.length);
+    const pj = zip.file(pjName);
     const meta = JSON.parse(await pj.async('string'));
     if (meta.task && meta.task !== task) setTask(meta.task);
     const total = meta.classes.reduce((n,c)=>n + c.examples.length, 0);
@@ -979,7 +994,7 @@ async function loadProject(file){
     for (const mc of meta.classes){
       const c = {name:mc.name, examples:[]};
       for (const ex of mc.examples){
-        const zf = zip.file('project/' + ex.file);
+        const zf = zip.file(base + ex.file);
         if (!zf) continue;
         const src = 'data:image/jpeg;base64,' + await zf.async('base64');
         const img = new Image();
@@ -1580,19 +1595,22 @@ async function selfCheck(oc){
   ort.env.wasm.numThreads = 1;
   const sess = await ort.InferenceSession.create(oc.bytes, {executionProviders: ['wasm']});
   const out = await sess.run({images: new ort.Tensor('float32', x, [1, 3, 224, 224])});
-  const refP = tf.tidy(() => head.predict(embed(cv).expandDims(0)).squeeze());
-  const ref = await refP.array(); refP.dispose();
-  let d = 0;
+  const fT = embed(cv);
+  const refF = await fT.array();
+  const refP = tf.tidy(() => head.predict(fT.expandDims(0)).squeeze());
+  const ref = await refP.array(); refP.dispose(); fT.dispose();
+  let d = 0, fd = 0, fm = 1e-6;
   ref.forEach((v, i) => { d = Math.max(d, Math.abs(v - out.probs.data[i])); });
-  oc.check = {ok: d < 2e-3, diff: d, outputs: sess.outputNames};
+  refF.forEach((v, i) => { fd = Math.max(fd, Math.abs(v - out.feat.data[i])); fm = Math.max(fm, Math.abs(v)); });
+  oc.check = {ok: d < 2e-3 && fd / fm < 2e-3, diff: Math.max(d, fd / fm), outputs: sess.outputNames};
   return oc.check;
 }
 function checkText(c){
   if (!c) return '';
   return c.ok ? t(`ONNX verified in this browser ✔ (onnxruntime vs TF.js, max diff ${c.diff.toExponential(1)})`,
                   `ตรวจ ONNX ในเบราว์เซอร์แล้ว ✔ (onnxruntime เทียบ TF.js ต่างกันสูงสุด ${c.diff.toExponential(1)})`)
-              : t(`⚠ ONNX differs from the browser model (max diff ${c.diff.toFixed(4)}) - please report this`,
-                  `⚠ ONNX ให้ผลต่างจากโมเดลในเบราว์เซอร์ (ต่างสูงสุด ${c.diff.toFixed(4)}) - กรุณาแจ้งทีม`);
+              : t(`ONNX does not match the browser model (diff ${c.diff.toFixed(4)}) - download stopped so you never get a broken model. Reload the page (Ctrl+Shift+R), load your project and train again.`,
+                  `ONNX ไม่ตรงกับโมเดลในเบราว์เซอร์ (ต่าง ${c.diff.toFixed(4)}) - หยุดดาวน์โหลดไว้ เพื่อไม่ให้ได้โมเดลที่ใช้ไม่ได้ กด Ctrl+Shift+R โหลดโปรเจกต์แล้วเทรนใหม่`);
 }
 async function onnxWithCheck(m){
   m.className = 'msg';
@@ -1600,8 +1618,13 @@ async function onnxWithCheck(m){
   await tf.nextFrame();
   const oc = await buildOnnx();
   let note = '';
+  m.textContent = t('Checking model.onnx against the browser model...', 'กำลังตรวจ model.onnx เทียบกับโมเดลในเบราว์เซอร์...');
   try { await selfCheck(oc); note = checkText(oc.check); }
-  catch (e) { note = t('(self-check skipped: ' + e.message + ')', '(ข้ามการตรวจ: ' + e.message + ')'); }
+  catch (e) {                 // onnxruntime-web could not load (offline) - the file is still exported
+    note = t('(check skipped - onnxruntime-web unavailable: ' + e.message + ')',
+             '(ข้ามการตรวจ - โหลด onnxruntime-web ไม่ได้: ' + e.message + ')');
+  }
+  if (oc.check && !oc.check.ok) throw new Error(checkText(oc.check));
   return {oc, note};
 }
 function download(blob, name){
@@ -1660,6 +1683,7 @@ async function exportModel(){
     } else {
       sh('install_jetson.sh'); sh('build_trt.sh');
     }
+    writeProject(zip, dir + 'project/');      // Load Project accepts this zip too
     const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
     download(blob, 'tesr-model-' + tg + '.zip');
     m.innerHTML = t(`Downloaded <b>tesr-model-${tg}.zip</b> — open <b>START_HERE.md</b> first: pick your case (PC, Pi, Jetson, TensorRT, your own code, ROI Studio) and follow 3–4 lines. `,
@@ -1835,6 +1859,7 @@ async function exportDataset(){
         'path: .\ntrain: images/train\nval: images/val\nnames:\n' +
         names.map((nm, i) => '  ' + i + ': ' + nm).join('\n') + '\n');
     zip.file('dataset/START_HERE.md', (window.TESR_EDGE_FILES || {})['START_HERE_DATASET.md'] || DS_README);
+    writeProject(zip, 'tesr-project/');      // outside dataset/ so YOLO ignores it; Load Project reads it
     const blob = await zip.generateAsync({type: 'blob'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
