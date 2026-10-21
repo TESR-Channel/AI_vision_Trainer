@@ -15,10 +15,9 @@ python predict.py              ← เปิดกล้อง เห็นก�
 
 ## ขั้นที่ 2 — บนคอมพิวเตอร์: export ไปอุปกรณ์
 ```
-python export.py --target pi                  # Raspberry Pi 5 + กล้อง USB
-python export.py --target pi --camera csi     # Raspberry Pi 5 + กล้องสายแพ
+python export.py --target pi                  # Raspberry Pi 5
 python export.py --target jetson              # Jetson Orin Nano / NX / AGX
-python export.py --target jetson --camera csi
+python export.py --target jetson_nano         # Jetson Nano (JetPack 4, ทดลอง)
 ```
 👉 ได้ไฟล์ `exports/tesr-model-pi5.zip` (หรือ `-jetson.zip`) — มีแค่ที่บอร์ดต้องใช้
 
@@ -79,7 +78,7 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 ## English
 
 1. **Computer:** `install_windows.bat` (Linux: `bash install_linux.sh`) → `python predict.py`
-2. **Computer:** `python export.py --target pi|jetson [--camera csi]` → `exports/tesr-model-<target>.zip`
+2. **Computer:** `python export.py --target pi|jetson|jetson_nano` → `exports/tesr-model-<target>.zip`
 3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py` (Jetson speed-up: `bash build_trt.sh`)
 
 Need more accuracy or real multi-object? Web page → **Download Dataset (YOLO)** → same steps with `train.py` / `run.py` / `export.py`.

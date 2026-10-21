@@ -1,9 +1,11 @@
 """TESR web model - package it for a device (run this ON YOUR COMPUTER).
 
-    python export.py --target pi                  # Raspberry Pi 5, USB camera
-    python export.py --target pi --camera csi     # Raspberry Pi 5, ribbon camera
+    python export.py --target pi                  # Raspberry Pi 5
     python export.py --target jetson              # Jetson Orin Nano / NX / AGX
     python export.py --target jetson_nano         # old Jetson Nano (JetPack 4, experimental)
+
+The export picks the BOARD. Which camera to open is decided on the device,
+when you run predict.py there:  python predict.py --camera usb --source 0
 
 Creates  exports/tesr-model-<target>/  and  exports/tesr-model-<target>.zip
 containing only what the device needs (model + predict.py + its installer).
@@ -95,7 +97,7 @@ def main():
                 z.writestr(info, f.read())
 
     rel = os.path.relpath(out_dir, HERE)
-    print("Done - %s, camera %s" % (T["label"], args.camera.upper()))
+    print("Done - %s" % T["label"])
     print("  folder : %s" % rel)
     print("  zip    : %s.zip" % rel)
     print("\nNext, ON THE DEVICE:")
