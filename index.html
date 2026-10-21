@@ -1454,13 +1454,54 @@ let lastBoxW = null, lastLabel = null, lastDetName = null, lastDetConf = 0, last
 async function toggleLive(){
   liveOn = !liveOn;
   document.getElementById('btnLive').textContent = liveOn ? '\u23f8 Stop' : '\u25b6 Start Live Test';
-  if (liveOn) { lastBoxW = null; lastLabel = null; lastMulti = null; renderLoopW(); inferLoopW(); }
+  if (liveOn) { lastBoxW = null; lastLabel = null; lastMulti = null; steadier = new Steadier(STEADY_DEFAULT, STEADY_HOLD);
+                renderLoopW(); inferLoopW(); }
 }
-function smoothBox(prev, next){
-  if (!prev) return next;
-  const A = 0.45;
-  return next.map((v,i) => prev[i] + A*(v - prev[i]));
+/* Box steadier - same One Euro filter + deadband + hold as predict.py (tuned on real
+   footage). The preset chosen here is also written into the exported config.json. */
+const STEADY_PRESETS = {
+  high:   {mc: 0.05, beta: 4,  dc: 1, db: 0.006},
+  normal: {mc: 0.10, beta: 6,  dc: 1, db: 0.004},
+  low:    {mc: 0.50, beta: 10, dc: 1, db: 0.002},
+};
+const STEADY_DEFAULT = 'high', STEADY_HOLD = 6;
+class Steadier {
+  constructor(preset, hold){ this.p = STEADY_PRESETS[preset] || STEADY_PRESETS.normal; this.off = preset === 'off';
+    this.hold = hold; this.name = null; this.conf = 0; this.cand = null; this.candN = 0; this.miss = 0; this.reset(); }
+  reset(){ this.x = this.dx = this.shown = null; this.t = 0; }
+  filter(z, now){
+    if (this.off) return z.slice();
+    if (!this.x){ this.x = z.slice(); this.dx = [0,0,0,0]; this.shown = z.slice(); this.t = now; return z.slice(); }
+    const dt = Math.min(Math.max((now - this.t)/1000, 1e-3), 0.5); this.t = now;
+    const al = c => { const r = 2*Math.PI*c*dt; return r/(r+1); }, ad = al(this.p.dc);
+    for (let i = 0; i < 4; i++){
+      this.dx[i] += ad*((z[i] - this.x[i])/dt - this.dx[i]);
+      this.x[i] += al(this.p.mc + this.p.beta*Math.abs(this.dx[i]))*(z[i] - this.x[i]);
+      if (Math.abs(this.x[i] - this.shown[i]) > this.p.db*(i < 2 ? 1 : 1.5)) this.shown[i] = this.x[i];
+    }
+    return this.shown.slice();
+  }
+  update(name, conf, box){
+    const now = performance.now();
+    if (name === 'none' || !box){
+      this.miss++;
+      if (this.shown && this.miss <= this.hold) return {name: this.name, conf: this.conf, box: this.shown.slice()};
+      this.reset(); this.name = null; this.cand = null; this.candN = 0;
+      return {name: 'none', conf, box: null};
+    }
+    this.miss = 0;
+    if (this.name !== null && name !== this.name){
+      this.candN = name === this.cand ? this.candN + 1 : 1; this.cand = name;
+      if (this.candN < 2) return {name: this.name, conf: this.conf, box: this.shown.slice()};
+      this.reset();
+    }
+    this.cand = null; this.candN = 0;
+    this.conf = (this.name !== name || this.off) ? conf : this.conf + 0.3*(conf - this.conf);
+    this.name = name;
+    return {name, conf: this.conf, box: this.filter(box, now)};
+  }
 }
+let steadier = new Steadier(STEADY_DEFAULT, STEADY_HOLD);
 function renderLoopW(){
   if (!liveOn) return;
   const video = document.getElementById('cam');
@@ -1555,9 +1596,10 @@ async function inferLoopW(){
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
           <div class="pval">${(100*vals[i]).toFixed(1)}%</div></div>`).join('');
-    if (mode === 'detect' && r.box) {
-      lastDetName = r.name; lastDetConf = r.conf;
-      if (r.name === 'none') {
+    if (mode === 'detect' && (r.box || r.name === 'none')) {
+      const st = steadier.update(r.name, r.conf, r.name === 'none' ? null : r.box);
+      lastDetName = st.name; lastDetConf = st.conf;
+      if (!st.box) {
         lastBoxW = null;
         document.getElementById('pred').innerHTML = bars;
         document.getElementById('fpsTag').textContent =
@@ -1565,12 +1607,12 @@ async function inferLoopW(){
         await tf.nextFrame();
         continue;
       }
-      lastBoxW = smoothBox(lastBoxW, r.box);
+      lastBoxW = st.box;
       const [cx, cy] = lastBoxW;
       const px = Math.round(cx*video.videoWidth), py = Math.round(cy*video.videoHeight);
       document.getElementById('pred').innerHTML =
         `<div class="prow"><div class="pname" style="width:auto">
-          \ud83d\udccd <b>${r.name}</b> ${(100*r.conf).toFixed(0)}%
+          \ud83d\udccd <b>${st.name}</b> ${(100*st.conf).toFixed(0)}%
           &nbsp;\u00b7&nbsp; center (${px}, ${py})px
         </div></div>` + bars;
     } else {
@@ -1794,6 +1836,7 @@ function deployConfig(oc){
     background_classes: head.classNames.filter(n => TESR_ONNX.isBackground(n)),
     detect_mode: det ? document.getElementById('tgtMode').value : 'classify',
     min_conf: +document.getElementById('minConf').value,
+    steady: {preset: STEADY_DEFAULT, hold: STEADY_HOLD, mirror_average: 'auto'},
     target: document.getElementById('tgt').value,
     camera: document.getElementById('tgtCam').value, camera_index: 0,
     prototypes: protos ? {names: protos.names, threshold: +protos.thr.toFixed(3),

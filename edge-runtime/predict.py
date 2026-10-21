@@ -23,6 +23,7 @@ Written for Python 3.6+ so it also runs on Jetson Nano (JetPack 4).
 """
 import argparse
 import json
+import math
 import os
 import platform
 import sys
@@ -197,39 +198,77 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
     return dets
 
 
+STEADY_PRESETS = {
+    # One Euro filter: strong smoothing while the object is still, almost no lag when it
+    # moves. min_cutoff = smoothing at rest (lower = steadier), beta = how fast it follows
+    # motion, deadband = ignore changes smaller than this (fraction of the frame).
+    "high":   {"min_cutoff": 0.05, "beta": 4.0, "d_cutoff": 1.0, "deadband": 0.006},
+    "normal": {"min_cutoff": 0.10, "beta": 6.0, "d_cutoff": 1.0, "deadband": 0.004},
+    "low":    {"min_cutoff": 0.50, "beta": 10.0, "d_cutoff": 1.0, "deadband": 0.002},
+}
+
+
 class Stabilizer(object):
-    """Steadies the single-object result between frames.
-    - box: exponential smoothing (alpha 1 = raw, lower = steadier, a little more lag)
-    - class: switches only after it is seen on 2 frames in a row
+    """Steadies the single-object result between frames (tuned on real footage).
+    - box: One Euro filter + small deadband, time-based so it behaves the same at any FPS
+    - class: switches only after it is seen on 2 frames in a row; confidence is smoothed
     - "none": the last box is held for a few frames (a hand passing by, motion blur)"""
 
-    def __init__(self, alpha=0.4, hold=6):
-        self.alpha, self.hold = alpha, hold
-        self.name, self.conf, self.box = None, 0.0, None
+    def __init__(self, preset="normal", hold=6):
+        self.off = preset == "off"
+        p = STEADY_PRESETS.get(preset, STEADY_PRESETS["normal"])
+        self.mc, self.beta, self.dc, self.db = p["min_cutoff"], p["beta"], p["d_cutoff"], p["deadband"]
+        self.hold = hold
+        self.reset()
         self.cand, self.cand_n, self.miss = None, 0, 0
+        self.name, self.conf = None, 0.0
 
-    def update(self, name, conf, box):
+    def reset(self):
+        self.x = self.dx = self.shown = None
+        self.t = None
+
+    @staticmethod
+    def _alpha(cutoff, dt):
+        r = 2 * math.pi * cutoff * dt
+        return r / (r + 1)
+
+    def _filter(self, box, now):
+        z = np.asarray(box, dtype=np.float64)
+        if self.off:
+            return list(z)
+        if self.x is None:
+            self.x, self.dx, self.shown, self.t = z.copy(), np.zeros(4), z.copy(), now
+            return list(z)
+        dt = min(max(now - self.t, 1e-3), 0.5)
+        self.t = now
+        self.dx = self.dx + self._alpha(self.dc, dt) * ((z - self.x) / dt - self.dx)
+        cut = self.mc + self.beta * np.abs(self.dx)
+        a = 2 * math.pi * cut * dt
+        self.x = self.x + (a / (a + 1)) * (z - self.x)
+        moved = np.abs(self.x - self.shown) > np.array([self.db, self.db, self.db * 1.5, self.db * 1.5])
+        self.shown[moved] = self.x[moved]
+        return list(self.shown)
+
+    def update(self, name, conf, box, now=None):
+        now = time.time() if now is None else now
         if name == "none" or box is None:
             self.miss += 1
-            if self.box is not None and self.miss <= self.hold:
-                return self.name, self.conf, self.box
-            self.name, self.box, self.cand, self.cand_n = None, None, None, 0
+            if self.shown is not None and self.miss <= self.hold:
+                return self.name, self.conf, list(self.shown)
+            self.reset()
+            self.name, self.cand, self.cand_n = None, None, 0
             return "none", conf, None
         self.miss = 0
         if self.name is not None and name != self.name:
             self.cand_n = self.cand_n + 1 if name == self.cand else 1
             self.cand = name
             if self.cand_n < 2:                      # not confirmed yet: keep the current answer
-                return self.name, self.conf, self.box
-            self.box = None                          # confirmed switch: start fresh
+                return self.name, self.conf, list(self.shown)
+            self.reset()                             # confirmed switch: start fresh
         self.cand, self.cand_n = None, 0
-        if self.box is None or self.name != name:
-            self.box = list(box)
-        else:
-            a = self.alpha
-            self.box = [p + a * (n - p) for p, n in zip(self.box, box)]
-        self.name, self.conf = name, conf
-        return self.name, self.conf, self.box
+        self.conf = conf if (self.name != name or self.off) else self.conf + 0.3 * (conf - self.conf)
+        self.name = name
+        return self.name, self.conf, self._filter(box, now)
 
 
 # --------------------------------------------------------------- drawing ---
@@ -337,9 +376,10 @@ def main():
     ap.add_argument("--headless", action="store_true", help="no window; print results only")
     ap.add_argument("--cpu", action="store_true", help="force CPU even if a GPU provider exists")
     ap.add_argument("--trt", action="store_true", help="Jetson: use the onnxruntime TensorRT provider if installed")
-    ap.add_argument("--smooth", type=float, default=0.4,
-                    help="box smoothing 0..1 (1 = raw/no smoothing, lower = steadier but slight lag)")
-    ap.add_argument("--hold", type=int, default=6, help="frames to keep the last box when the object is briefly lost")
+    ap.add_argument("--steady", choices=["auto", "high", "normal", "low", "off"], default="auto",
+                    help="box steadiness: high = steadiest, low = follows fastest, off = raw "
+                         "(auto = config.json, default high)")
+    ap.add_argument("--hold", type=int, default=None, help="frames to keep the last box when the object is briefly lost (default 6)")
     ap.add_argument("--tta", choices=["auto", "on", "off"], default="auto",
                     help="also run the mirrored frame and average the box (steadier, 2x compute). "
                          "auto = on, except on Raspberry Pi")
@@ -359,11 +399,12 @@ def main():
 
     tta = args.tta == "on" or (args.tta == "auto" and not is_raspberry_pi() and cfg.get("target") != "pi5")
     tta = tta and mode in ("single", "precise")
-    stab = Stabilizer(alpha=min(1.0, max(0.05, args.smooth)), hold=max(0, args.hold))
+    steady = args.steady if args.steady != "auto" else (cfg.get("steady") or {}).get("preset", "high")
+    hold = args.hold if args.hold is not None else int((cfg.get("steady") or {}).get("hold", 6))
+    stab = Stabilizer(steady, hold=max(0, hold))
     print("TESR model | task: %s | mode: %s | runtime: %s" % (model.task, mode, model.provider))
     if mode in ("single", "precise"):
-        print("steadying: smooth %.2f, hold %d frames, mirror-average %s"
-              % (stab.alpha, stab.hold, "on" if tta else "off"))
+        print("steady: %s | hold %d frames | mirror-average %s" % (steady, stab.hold, "on" if tta else "off"))
     print("classes: " + ", ".join(model.names))
     if model.proto is not None and mode != "multi":
         print('"none" gates: confidence < %.2f OR similarity < %.2f'
