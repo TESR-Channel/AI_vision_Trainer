@@ -354,6 +354,9 @@ class MultiSteadier(object):
 
 # --------------------------------------------------------------- drawing ---
 def draw_box(bgr, name, conf, box, idx=None):
+    """Box + center cross + one label:  #1 Orange 100% (128, 262)
+    The label sits just above the box (inside it when there is no room above) and is
+    always kept fully inside the image, on a dark strip so it stays readable."""
     import cv2
     H, W = bgr.shape[:2]
     cx, cy, bw, bh = box
@@ -361,11 +364,18 @@ def draw_box(bgr, name, conf, box, idx=None):
     x1, y1 = int((cx - bw / 2) * W), int((cy - bh / 2) * H)
     x2, y2 = int((cx + bw / 2) * W), int((cy + bh / 2) * H)
     cv2.rectangle(bgr, (x1, y1), (x2, y2), GOLD, 2)
-    cv2.drawMarker(bgr, (px, py), GOLD, cv2.MARKER_CROSS, 22, 2)
-    label = "%s %d%%" % (name, round(conf * 100))
+    cv2.drawMarker(bgr, (px, py), GOLD, cv2.MARKER_CROSS, 18, 2)
+    label = "%s %d%% (%d, %d)" % (name, round(conf * 100), px, py)
     if idx is not None:
         label = "#%d %s" % (idx, label)
-    cv2.putText(bgr, label, (max(2, x1 + 4), max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, GOLD, 2)
+    font, scale, th = cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1
+    (tw, tht), base = cv2.getTextSize(label, font, scale, th)
+    pad = 4
+    lw, lh = tw + 2 * pad, tht + base + 2 * pad
+    lx = min(max(0, x1), max(0, W - lw))                      # stay inside the image
+    ly = y1 - lh if y1 - lh >= 0 else max(0, min(y1, H - lh))  # above the box, else inside it
+    cv2.rectangle(bgr, (lx, ly), (lx + lw, ly + lh), (12, 17, 20), -1)
+    cv2.putText(bgr, label, (lx + pad, ly + pad + tht), font, scale, GOLD, th, cv2.LINE_AA)
     return px, py
 
 
@@ -521,7 +531,6 @@ def main():
             put(bgr, "none", 34, GREY, 1.0)
             return [("none", round(conf, 3), None)]
         px, py = draw_box(bgr, name, conf, box)
-        put(bgr, "center (%d, %d)px" % (px, py), bgr.shape[0] - 14, GOLD, 0.6)
         return [(name, round(conf, 3), (px, py))]
 
     def show(bgr, title):

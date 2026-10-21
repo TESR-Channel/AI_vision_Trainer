@@ -1737,6 +1737,17 @@ class Steadier {
   }
 }
 let steadier = new Steadier(STEADY_DEFAULT, STEADY_HOLD);
+/* one label per object:  #1 Orange 100% (128, 262)  - above the box, inside it when there
+   is no room above, always fully inside the frame (same rule as predict.py) */
+function drawLabel(tx, label, x, y, col, W, H){
+  tx.font = '13px Kanit, sans-serif';
+  const pad = 5, lw = tx.measureText(label).width + 2*pad, lh = 13 + 2*pad;
+  const lx = Math.min(Math.max(0, x), Math.max(0, W - lw));
+  const ly = (y - lh >= 0) ? y - lh : Math.max(0, Math.min(y, H - lh));
+  tx.fillStyle = 'rgba(20,17,12,.85)'; tx.fillRect(lx, ly, lw, lh);
+  tx.fillStyle = col; tx.textBaseline = 'middle'; tx.fillText(label, lx + pad, ly + lh/2 + 1);
+  tx.textBaseline = 'alphabetic';
+}
 function renderLoopW(){
   if (!liveOn) return;
   const video = document.getElementById('cam');
@@ -1755,19 +1766,8 @@ function renderLoopW(){
       tx.beginPath(); tx.moveTo(px-14,py); tx.lineTo(px+14,py);
       tx.moveTo(px,py-14); tx.lineTo(px,py+14);
       tx.strokeStyle = col; tx.lineWidth = 2; tx.stroke();
-      const label = `${lastDetName} ${(100*lastDetConf).toFixed(0)}%`;
-      tx.font = '18px Kanit, sans-serif';
-      let tw = tx.measureText(label).width + 14;
-      tx.fillStyle = 'rgba(20,17,12,.82)';
-      tx.fillRect(x, Math.max(0, y-26), tw, 26);
-      tx.fillStyle = col;
-      tx.fillText(label, x+7, Math.max(19, y-7));
-      const cLabel = `center (${Math.round(px)}, ${Math.round(py)})px`;
-      tw = tx.measureText(cLabel).width + 14;
-      tx.fillStyle = 'rgba(20,17,12,.82)';
-      tx.fillRect(8, tv.height-34, tw, 26);
-      tx.fillStyle = col;
-      tx.fillText(cLabel, 15, tv.height-15);
+      drawLabel(tx, `${lastDetName} ${(100*lastDetConf).toFixed(0)}% (${Math.round(px)}, ${Math.round(py)})`,
+                x, y, col, tv.width, tv.height);
     } else if (mode === 'multi' && lastMulti) {
       tx.font = '16px Kanit, sans-serif';
       lastMulti.forEach((d, k) => {
@@ -1778,11 +1778,8 @@ function renderLoopW(){
         const px = cx*tv.width, py = cy*tv.height;
         tx.beginPath(); tx.moveTo(px-10,py); tx.lineTo(px+10,py);
         tx.moveTo(px,py-10); tx.lineTo(px,py+10); tx.lineWidth = 2; tx.stroke();
-        const label = `#${d.id || k+1} ${d.name} ${(100*d.conf).toFixed(0)}%`;
-        const tw = tx.measureText(label).width + 12;
-        tx.fillStyle = 'rgba(20,17,12,.82)';
-        tx.fillRect(x, Math.max(0, y-24), tw, 24);
-        tx.fillStyle = col; tx.fillText(label, x+6, Math.max(17, y-7));
+        drawLabel(tx, `#${d.id || k+1} ${d.name} ${(100*d.conf).toFixed(0)}% (${Math.round(px)}, ${Math.round(py)})`,
+                  x, y, col, tv.width, tv.height);
       });
       const cLabel = `${lastMulti.length} object(s)`;
       tx.font = '18px Kanit, sans-serif';
