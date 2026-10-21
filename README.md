@@ -6,7 +6,9 @@ production-grade YOLO on your PC and deploy it to a Raspberry Pi or NVIDIA Jetso
 
 **▶ Try it now: https://tesr-channel.github.io/AI_vision_Trainer/**
 
-![TESR](logo.png)
+<p align="center">
+  <img src="logo.png" alt="TESR" width="300">
+</p>
 
 ## What you can build in 10 minutes
 
