@@ -183,8 +183,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
 
   <div class="card" id="clsCard">
     <h2>2 &middot; Classes</h2>
-    <p class="sub" id="clsSub">What should the AI learn to tell apart? At least 2 classes &mdash; and adding a
-    "background" class of your empty scene makes the "none" answer much more reliable.</p>
+    <p class="sub" id="clsSub">What should the AI learn to tell apart? At least 2 classes. Then press
+    <b>+ Background</b> and capture what it must IGNORE: the empty scene, <b>your hands</b> moving in view,
+    other things on the table &mdash; no boxes needed. This is what stops hands being called a lemon.</p>
     <div class="row" style="margin-bottom:6px">
       <button class="quiet" onclick="document.getElementById('projFile').click()">&#128194; Load Project</button>
       <button class="quiet" onclick="saveProject()">&#128190; Save Project</button>
@@ -204,6 +205,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <div class="row">
       <input type="text" id="newCls" placeholder="Class name, e.g. jetson_board" style="width:260px">
       <button class="gold" onclick="addClass()">+ Add Class</button>
+      <button class="quiet" onclick="addBackground()" title="Empty scene, hands, things to ignore - no boxes">+ Background (what to ignore)</button>
     </div>
     <div id="clsList" style="margin-top:16px"></div>
   </div>
@@ -565,16 +567,24 @@ function renderCapChips(){
        onclick="capClass='${c.name}';renderCapChips()">${c.name}</button>`).join('') ||
     '<span class="tag">Add classes above first</span>';
 }
-function labeledCount(c){ return c.examples.filter(e=>e.box).length; }
+/* a class named background / bg / none / empty: photos of what to IGNORE (empty scene,
+   hands, other things). In detection it needs NO boxes - it teaches "nothing here". */
+function bgCls(c){ return !!(window.TESR_ONNX && TESR_ONNX.isBackground(c.name)); }
+function labeledCount(c){ return bgCls(c) ? c.examples.length : c.examples.filter(e=>e.box).length; }
 function unlabeledTotal(){
   if (task!=='detect') return 0;
-  return classes.reduce((s,c)=>s + c.examples.filter(e=>!e.box).length, 0);
+  return classes.reduce((s,c)=>s + (bgCls(c) ? 0 : c.examples.filter(e=>!e.box).length), 0);
+}
+function addBackground(){
+  if (!classes.find(c => bgCls(c))) classes.push({name: 'background', examples: []});
+  capClass = classes.find(c => bgCls(c)).name;
+  renderClasses();
 }
 function countChip(c){
   const min = REC[task].min;
   const n = task==='detect' ? labeledCount(c) : c.examples.length;
   const cl = n >= min ? 'ok' : (n >= min/2 ? 'warn' : 'bad');
-  const word = task==='detect' ? 'labeled' : 'photos';
+  const word = task==='detect' ? (bgCls(c) ? 'photos &middot; no boxes needed' : 'labeled') : 'photos';
   return `<span class="chip ${cl}" style="padding:3px 12px">${n}/${min} ${word}</span>`;
 }
 function renderClasses(){
@@ -595,8 +605,8 @@ function renderClasses(){
           &middot; hover to delete${task==='detect' ? ' &middot; click to label' : ''}</span>
       </div>
       <div class="thumbs">${c.examples.map((e,i)=>`
-        <span class="tw ${task==='detect' ? (e.box?'lbl':'unlbl') : ''}"
-          ${task==='detect' ? `onclick="openLbl('${c.name}', ${i})"` : ''}>
+        <span class="tw ${task==='detect' && !bgCls(c) ? (e.box?'lbl':'unlbl') : ''}"
+          ${task==='detect' && !bgCls(c) ? `onclick="openLbl('${c.name}', ${i})"` : ''}>
           <img src="${e.thumb}">
           ${e.aug?'<span class="aug">\u2728</span>':''}
           <button class="x" title="Delete this example"
@@ -791,6 +801,7 @@ function openLbl(clsName, idx){
 }
 function openNextUnlabeled(){
   for (const c of classes){
+    if (bgCls(c)) continue;
     const i = c.examples.findIndex(e => !e.box);
     if (i >= 0) { openLbl(c.name, i); return; }
   }
@@ -907,6 +918,7 @@ function lblSaveNext(){
   if (i < 0) i = c.examples.findIndex(e => !e.box);
   if (i >= 0) { openLbl(lblCls, i); return; }
   for (const c2 of classes){
+    if (bgCls(c2)) continue;
     const k = c2.examples.findIndex(e => !e.box);
     if (k >= 0) { openLbl(c2.name, k); return; }
   }
@@ -1076,7 +1088,7 @@ async function augmentAll(){
   if (!net) { msg.textContent = 'Backbone still loading \u2014 wait a moment.'; return; }
   const k = +document.getElementById('augMult').value;
   const need = e => task==='detect' ? (!e.aug && e.box) : !e.aug;
-  const sources = classes.flatMap(c => c.examples.filter(need)
+  const sources = classes.flatMap(c => c.examples.filter(e => need(e) || (task==='detect' && bgCls(c) && !e.aug))
     .map(e => ({cls: c, src: e.src, box: e.box})));
   if (!sources.length) {
     msg.textContent = task==='detect'
@@ -1195,7 +1207,8 @@ async function predictEl(el){
     }
   }
   const thv = +document.getElementById('minConf').value;
-  const none = vals[best] < thv || (sim !== null && sim < protos.thr);
+  const none = vals[best] < thv || (sim !== null && sim < protos.thr) ||
+               (window.TESR_ONNX && TESR_ONNX.isBackground(head.classNames[best]));
   return {name: none ? 'none' : head.classNames[best], conf: vals[best], vals, box};
 }
 
@@ -1257,7 +1270,7 @@ async function train(){
   const msg = document.getElementById('tMsg');
   msg.className = 'msg';
   if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
-  const pick = c => task==='detect' ? c.examples.filter(e=>e.box) : c.examples;
+  const pick = c => task==='detect' ? (bgCls(c) ? c.examples : c.examples.filter(e=>e.box)) : c.examples;
   const usable = classes.filter(c => pick(c).length >= 10);
   if (usable.length < 2) {
     msg.className = 'msg err';
@@ -1276,7 +1289,7 @@ async function train(){
   usable.forEach((c,i)=>{
     pick(c).forEach(e=>{
       xs.push(e.feat); ys.push(i);
-      if (task==='detect'){ bx.push(e.feat); by.push(ellipseBox(e.box, e.w, e.h)); }
+      if (task==='detect' && e.box && !bgCls(c)){ bx.push(e.feat); by.push(ellipseBox(e.box, e.w, e.h)); }
     });
   });
   const X = tf.tensor2d(xs);
@@ -1524,6 +1537,17 @@ function gridMosaic(pool, fg){
       break;
     }
   }
+  // background photos (hands, empty scene ...) pasted as distractors: no target -> "not an object"
+  const bgp = pool.filter(p => p.bg);
+  for (let k = 0, n = bgp.length ? Math.floor(Math.random()*3) : 0; k < n; k++){
+    const it = bgp[Math.floor(Math.random()*bgp.length)];
+    const s = 0.35 + Math.random()*0.3, cw = 224*s, ch = 224*s;
+    const sx = Math.random()*(224 - cw), sy = Math.random()*(224 - ch);
+    const px = -cw/3 + Math.random()*(224 - cw/3), py = -ch/3 + Math.random()*(224 - ch/3);
+    if (m.objs.some(o => o.box[0]*224 > px && o.box[0]*224 < px + cw && o.box[1]*224 > py && o.box[1]*224 < py + ch)) continue;
+    m.x.save(); m.x.filter = `brightness(${m.bright})`;
+    m.x.drawImage(it.cv, sx, sy, cw, ch, px, py, cw, ch); m.x.restore();
+  }
   return m;
 }
 function gridLoss(yT, yP, nc){
@@ -1547,7 +1571,7 @@ async function trainGridDetector(items, nc, p0){
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = it.e.src; });
     const cv = document.createElement('canvas'); cv.width = 224; cv.height = 224;
     cv.getContext('2d').drawImage(img, 0, 0, 224, 224);
-    pool.push({cv, ci: it.ci, bg: it.bg, box: ellipseBox(it.e.box, it.e.w, it.e.h)});
+    pool.push({cv, ci: it.ci, bg: it.bg, box: it.bg ? [0.5, 0.5, 1, 1] : ellipseBox(it.e.box, it.e.w, it.e.h)});
   }
   const fg = pool.filter(p => !p.bg);
   const N = Math.max(600, Math.min(1600, pool.length*40));
@@ -1666,7 +1690,7 @@ function gridDecode(rows, thr){            // same algorithm as decode_multi() i
 }
 /* many objects at once: each one tracked and smoothed with its own Steadier (like predict.py) */
 class MultiSteadier {                       // same rules as MultiSteadier in predict.py
-  constructor(preset, hold, confirm){ this.preset = preset; this.hold = hold; this.confirm = confirm || 2; this.tracks = []; }
+  constructor(preset, hold, confirm){ this.preset = preset; this.hold = hold; this.confirm = confirm || 3; this.tracks = []; }
   newId(){ const used = new Set(this.tracks.map(t => t.id)); let i = 1; while (used.has(i)) i++; return i; }
   update(dets, startConf){
     startConf = startConf || 0;
@@ -1680,8 +1704,10 @@ class MultiSteadier {                       // same rules as MultiSteadier in pr
     const ut = new Set(), ud = new Set(), out = [];
     for (const [, ti, di] of pairs){
       if (ut.has(ti) || ud.has(di)) continue;
-      ut.add(ti); ud.add(di);
-      const t = this.tracks[ti], d = dets[di]; t.box = d.box; t.hits++;
+      ud.add(di);
+      const t = this.tracks[ti], d = dets[di];
+      if (d.conf < startConf) continue;          // weak: keeps the object, never moves / shows a box
+      ut.add(ti); t.box = d.box; t.hits++;
       const r = t.st.update(d.name, d.conf, d.box);
       if (r.box && t.hits >= this.confirm) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
     }
@@ -1829,7 +1855,7 @@ async function inferLoopW(){
     const mode = document.getElementById('mode').value;
     if (mode === 'multi') {
       if (!boxHead && !detHead) { await tf.nextFrame(); continue; }
-      if (!multiSteadier) multiSteadier = new MultiSteadier(STEADY_DEFAULT, STEADY_HOLD + 4, 2);
+      if (!multiSteadier) multiSteadier = new MultiSteadier(STEADY_DEFAULT, STEADY_HOLD + 4, 3);
       const dets = multiSteadier.update(await predictMulti(video), GRID_MULTI_CONF);
       lastMulti = dets;
       document.getElementById('pred').innerHTML = dets.length
@@ -2259,7 +2285,8 @@ async function exportDataset(){
   const wantBox = task === 'detect';
   const withAug = document.getElementById('dsAug').checked;
   const pickOk = e => (!e.aug || withAug) && (!wantBox || e.box);
-  const names = classes.filter(c => c.examples.some(pickOk)).map(c => c.name);
+  // detection: background photos go in as images with an EMPTY label file (YOLO "background images")
+  const names = classes.filter(c => !(wantBox && bgCls(c)) && c.examples.some(pickOk)).map(c => c.name);
   if (!names.length){
     m.textContent = wantBox
       ? 'Label some photos first (draw boxes in the detection task).'
@@ -2269,15 +2296,25 @@ async function exportDataset(){
   m.textContent = 'Building dataset zip...';
   // any rotated box -> the WHOLE detection export becomes YOLO OBB (formats can't mix)
   const hasOBB = wantBox && classes.some(c =>
-    c.examples.some(e => pickOk(e) && Math.abs(boxAngle(e.box)) > 0.5));
+    c.examples.some(e => pickOk(e) && e.box && Math.abs(boxAngle(e.box)) > 0.5));
   try {
     const zip = new JSZip();
     let n = 0, nAug = 0;
     classes.forEach(c => {
+      const bgOnly = wantBox && bgCls(c);
       const ci = names.indexOf(c.name);
-      if (ci < 0) return;
+      if (ci < 0 && !bgOnly) return;
       let kept = 0;
       c.examples.forEach((e, i) => {
+        if (bgOnly){
+          if (e.aug && !withAug) return;
+          const split = e.aug ? 'train' : ((kept % 7 === 0) ? 'val' : 'train');
+          if (e.aug) nAug++; else kept++;
+          const fname = c.name + '_' + String(i).padStart(4, '0');
+          zip.file('dataset/images/' + split + '/' + fname + '.jpg', e.src.split(',')[1], {base64: true});
+          zip.file('dataset/labels/' + split + '/' + fname + '.txt', '');
+          n++; return;
+        }
         if (!pickOk(e)) return;
         // generated \u2728 photos go to TRAIN only - val stays real, so metrics stay honest
         const split = e.aug ? 'train' : ((kept % 7 === 0) ? 'val' : 'train');

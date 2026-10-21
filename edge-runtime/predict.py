@@ -126,7 +126,7 @@ def decide(model, out, min_conf, proto_th):
     sim = model.similarity(out["feat"][0])
     thr = proto_th if proto_th is not None else (model.proto["thr"] if model.proto else None)
     name = model.names[i]
-    if conf < min_conf or (sim is not None and thr is not None and sim < thr):
+    if conf < min_conf or (sim is not None and thr is not None and sim < thr) or name in model.bg:
         name = "none"
     return name, conf, probs
 
@@ -316,7 +316,7 @@ class MultiSteadier(object):
     and every track has its own Stabilizer - same smoothing, hold and class
     hysteresis as single-object mode. Tracks keep an id (#1, #2 ...) while visible."""
 
-    def __init__(self, preset="high", hold=6, confirm=2):
+    def __init__(self, preset="high", hold=6, confirm=3):
         self.preset, self.hold, self.confirm = preset, hold, confirm
         self.tracks = []            # dicts: id, st (Stabilizer), box (last raw xywh), hits
 
@@ -350,8 +350,11 @@ class MultiSteadier(object):
         for _, ti, di in pairs:
             if ti in used_t or di in used_d:
                 continue
-            used_t.add(ti); used_d.add(di)
+            used_d.add(di)
             t, d = self.tracks[ti], dets[di]
+            if d["conf"] < start_conf:
+                continue        # weak: keeps the object from being re-created, but never moves/shows a box
+            used_t.add(ti)
             t["box"] = d["box"]
             t["hits"] += 1
             name, conf, box = t["st"].update(d["name"], d["conf"], d["box"], now)

@@ -77,7 +77,7 @@ bash build_trt.sh     # builds model_fp32.engine + model_fp16.engine and prints 
 - **Everything is "none"** -> `--min-conf 0.5`, or `--proto-th 0.6`, or `--no-proto`; collect more varied photos
 - **Box steadiness** -> default `--steady high` (smoothest: One Euro filter + mirror-average + hold). Fast robot / conveyor: `--steady normal` or `--steady low` (follows faster). Raw: `--steady off --tta off --hold 0`
 - **An object is missed** -> lower `--min-conf 0.2`; add photos of it in more positions (also half out of frame)
-- **Boxes on things you did not train** -> raise `--min-conf 0.5`; train a `background` class of the empty scene
+- **Boxes on hands / things you did not train** -> web page: **+ Background**, capture the empty scene + your hands moving (no boxes), train again; quick fix: `--min-conf 0.5`
 - **The same object gets two boxes** -> `--iou 0.3`
 - **CSI on Jetson fails** -> `gst-launch-1.0 nvarguscamerasrc ! fakesink` must work first; use the system OpenCV (has GStreamer), not pip's
 - **CSI on Pi fails** -> `rpicam-hello` must work first; `sudo apt install -y python3-picamera2`
