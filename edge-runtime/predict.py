@@ -7,15 +7,15 @@ One script for PC, Raspberry Pi 5 and NVIDIA Jetson. Needs only:
     python predict.py --source photo.jpg      # one image
     python predict.py --source clip.mp4       # a video file
     python predict.py --camera csi            # ribbon camera (Pi: Picamera2, Jetson: GStreamer)
-    python predict.py --mode multi            # detection: many objects per frame (beta)
+    python predict.py --mode single           # detection: only the main object
     python predict.py --headless              # no window (SSH) - prints results only
 
 The model knows its own task (config.json):
   classification -> one class name for the whole frame
   detection      -> box + CENTER (x, y) in pixels; modes:
-                    single  one object, regression box (fast, default)
-                    precise one object, 25-crop grid scan (slower, tighter)
-                    multi   many objects from the model's YOLO-style output0 (beta)
+                    multi   every trained object in view, each tracked + smoothed (default)
+                    single  the one main object
+                    precise one object, 25-crop grid scan (slower)
 
 "none" = nothing you trained is in view: confidence below --min-conf OR the
 frame does not look like your training photos (prototypes in config.json).
@@ -99,13 +99,16 @@ class Model(object):
     def run(self, bgr, tta=False):
         x = self.blob(bgr)
         out = dict(zip(self.outputs, self.sess.run(None, {"images": x})))
-        if tta and "box" in out:
-            # average the box with the box of the mirrored frame: same object, independent
-            # noise -> about a third less frame-to-frame jitter (measured)
+        if tta and ("box" in out or "output0" in out):
+            # also run the mirrored frame: same objects, independent noise -> steadier boxes
             xf = np.ascontiguousarray(x[:, :, :, ::-1])
-            bf = dict(zip(self.outputs, self.sess.run(None, {"images": xf})))["box"].copy()
-            bf[0, 0] = 1.0 - bf[0, 0]
-            out["box"] = (out["box"] + bf) / 2.0
+            of = dict(zip(self.outputs, self.sess.run(None, {"images": xf})))
+            if "box" in out:
+                bf = of["box"].copy()
+                bf[0, 0] = 1.0 - bf[0, 0]
+                out["box"] = (out["box"] + bf) / 2.0
+            if "output0" in of:
+                out["output0_flip"] = of["output0"]
         return out
 
     def similarity(self, feat):
@@ -176,25 +179,44 @@ def iou(a, b):
 
 
 def decode_multi(model, out, min_conf, iou_thr, max_det=20):
-    """output0 [1,4+nc,N]: cx,cy,w,h in model pixels + per-class scores
-    (background classes and the similarity gate already applied in the model)."""
-    pred = out["output0"][0].T                    # [N, 4+nc]
+    """output0 [1,4+nc,N]: cx,cy,w,h in model pixels + per-class scores.
+    Neighbouring cells that see the same object are MERGED into one score-weighted box
+    (steadier than picking one cell), and the mirrored frame's detections are fused in
+    when available (out["output0_flip"])."""
+    s = float(model.size)
+    preds = [out["output0"][0].T]
+    if "output0_flip" in out:
+        pf = out["output0_flip"][0].T.copy()
+        pf[:, 0] = s - pf[:, 0]
+        preds.append(pf)
+    pred = np.concatenate(preds, 0)                     # [N, 4+nc]
     scores = pred[:, 4:]
     cls = np.argmax(scores, axis=1)
     conf = scores[np.arange(len(cls)), cls]
-    keep = np.where(conf >= min_conf)[0]
-    s = float(model.size)
-    dets = []
-    for k in keep[np.argsort(-conf[keep])]:
+    bg = set(i for i, n in enumerate(model.names) if n in model.bg)
+    keep = [k for k in np.where(conf >= min_conf)[0] if int(cls[k]) not in bg]
+    keep.sort(key=lambda k: -conf[k])
+    groups = []
+    for k in keep:
         cx, cy, w, h = pred[k, :4] / s
         box = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
         c = int(cls[k])
-        if any(d["cls"] == c and iou(d["xyxy"], box) > iou_thr for d in dets):
-            continue
-        dets.append({"cls": c, "name": model.names[c], "conf": float(conf[k]),
-                     "xyxy": box, "box": [float(cx), float(cy), float(w), float(h)]})
-        if len(dets) >= max_det:
-            break
+        for g in groups:
+            o = iou(g["xyxy"], box)
+            inside = g["xyxy"][0] <= cx <= g["xyxy"][2] and g["xyxy"][1] <= cy <= g["xyxy"][3]
+            if (g["cls"] == c and (o > iou_thr or inside)) or o > 0.6:
+                g["m"].append((float(conf[k]), [cx, cy, w, h]))
+                break
+        else:
+            if len(groups) < max_det:
+                groups.append({"cls": c, "conf": float(conf[k]), "xyxy": box, "m": [(float(conf[k]), [cx, cy, w, h])]})
+    dets = []
+    for g in groups:
+        wts = np.array([m[0] for m in g["m"]]); bx = np.array([m[1] for m in g["m"]])
+        b = (bx * wts[:, None]).sum(0) / wts.sum()
+        dets.append({"cls": g["cls"], "name": model.names[g["cls"]], "conf": g["conf"],
+                     "xyxy": [b[0] - b[2] / 2, b[1] - b[3] / 2, b[0] + b[2] / 2, b[1] + b[3] / 2],
+                     "box": [float(v) for v in b]})
     return dets
 
 
@@ -269,6 +291,65 @@ class Stabilizer(object):
         self.conf = conf if (self.name != name or self.off) else self.conf + 0.3 * (conf - self.conf)
         self.name = name
         return self.name, self.conf, self._filter(box, now)
+
+
+class MultiSteadier(object):
+    """Many objects at once: each detection is matched to a track (by overlap / distance),
+    and every track has its own Stabilizer - same smoothing, hold and class
+    hysteresis as single-object mode. Tracks keep an id (#1, #2 ...) while visible."""
+
+    def __init__(self, preset="high", hold=6):
+        self.preset, self.hold = preset, hold
+        self.tracks = []            # dicts: id, st (Stabilizer), box (last raw xywh)
+        self.next_id = 1
+
+    @staticmethod
+    def _cost(a, b):
+        ax = [a[0] - a[2] / 2, a[1] - a[3] / 2, a[0] + a[2] / 2, a[1] + a[3] / 2]
+        bx = [b[0] - b[2] / 2, b[1] - b[3] / 2, b[0] + b[2] / 2, b[1] + b[3] / 2]
+        o = iou(ax, bx)
+        d = math.hypot(a[0] - b[0], a[1] - b[1]) / max(1e-6, (a[2] + a[3] + b[2] + b[3]) / 4)
+        return o, d
+
+    def update(self, dets, now=None):
+        now = time.time() if now is None else now
+        pairs = []
+        for ti, t in enumerate(self.tracks):
+            for di, d in enumerate(dets):
+                o, dist = self._cost(t["box"], d["box"])
+                if o > 0.15 or dist < 0.6:
+                    pairs.append((-(o - 0.2 * dist), ti, di))
+        pairs.sort()
+        used_t, used_d, out = set(), set(), []
+        for _, ti, di in pairs:
+            if ti in used_t or di in used_d:
+                continue
+            used_t.add(ti); used_d.add(di)
+            t, d = self.tracks[ti], dets[di]
+            t["box"] = d["box"]
+            name, conf, box = t["st"].update(d["name"], d["conf"], d["box"], now)
+            if box is not None:
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+        alive = []
+        for ti, t in enumerate(self.tracks):
+            if ti not in used_t:
+                name, conf, box = t["st"].update("none", 0.0, None, now)   # hold for a few frames
+                if box is None:
+                    continue
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+            alive.append(t)
+        self.tracks = alive
+        for di, d in enumerate(dets):
+            if di in used_d:
+                continue
+            st = Stabilizer(self.preset, self.hold)
+            name, conf, box = st.update(d["name"], d["conf"], d["box"], now)
+            t = {"id": self.next_id, "st": st, "box": d["box"]}
+            self.next_id += 1
+            self.tracks.append(t)
+            out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+        out.sort(key=lambda r: r["id"])
+        return out
 
 
 # --------------------------------------------------------------- drawing ---
@@ -392,18 +473,21 @@ def main():
         model.proto = None
     min_conf = args.min_conf if args.min_conf is not None else float(cfg.get("min_conf", 0.65))
     mode = args.mode if args.mode != "auto" else cfg.get("detect_mode", "single")
+    # multi-object detector threshold (per object); --min-conf overrides it
+    multi_conf = args.min_conf if args.min_conf is not None else float(cfg.get("multi_conf", 0.4))
     if model.task != "detection":
         mode = "classify"
     if mode == "multi" and "output0" not in model.outputs:
         raise SystemExit("--mode multi needs a detection export (output0 missing)")
 
     tta = args.tta == "on" or (args.tta == "auto" and not is_raspberry_pi() and cfg.get("target") != "pi5")
-    tta = tta and mode in ("single", "precise")
+    tta = tta and mode in ("single", "precise", "multi")
     steady = args.steady if args.steady != "auto" else (cfg.get("steady") or {}).get("preset", "high")
     hold = args.hold if args.hold is not None else int((cfg.get("steady") or {}).get("hold", 6))
     stab = Stabilizer(steady, hold=max(0, hold))
+    mstab = MultiSteadier(steady, hold=max(0, hold))
     print("TESR model | task: %s | mode: %s | runtime: %s" % (model.task, mode, model.provider))
-    if mode in ("single", "precise"):
+    if mode in ("single", "precise", "multi"):
         print("steady: %s | hold %d frames | mirror-average %s" % (steady, stab.hold, "on" if tta else "off"))
     print("classes: " + ", ".join(model.names))
     if model.proto is not None and mode != "multi":
@@ -413,13 +497,13 @@ def main():
     def run_frame(bgr):
         out = model.run(bgr, tta=tta)
         if mode == "multi":
-            dets = decode_multi(model, out, min_conf, args.iou)
+            dets = decode_multi(model, out, multi_conf, args.iou)
             H, W = bgr.shape[:2]
             res = []
-            for k, d in enumerate(dets, 1):
-                px, py = draw_box(bgr, d["name"], d["conf"], d["box"], k)
-                res.append((d["name"], round(d["conf"], 3), (px, py)))
-            put(bgr, "%d object(s)" % len(dets), H - 14, GOLD, 0.6)
+            for d in mstab.update(dets):
+                px, py = draw_box(bgr, d["name"], d["conf"], d["box"], d["id"])
+                res.append((d["id"], d["name"], round(d["conf"], 3), (px, py)))
+            put(bgr, "%d object(s)" % len(res), H - 14, GOLD, 0.6)
             return res
         name, conf, _ = decide(model, out, min_conf, args.proto_th)
         if mode == "classify":

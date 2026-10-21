@@ -53,18 +53,21 @@ onnxruntime-web and compares it with the TF.js model on one of your photos.
 
 | Output | Shape | Meaning |
 |---|---|---|
-| `output0` (detection) | `[1, 4+nc, 71]` | YOLO-style candidates: cx,cy,w,h in 224-px space + class scores (background classes zeroed, "looks like my photos" gate applied) — any Ultralytics-style decoder (conf filter + NMS) reads it |
+| `output0` (detection) | `[1, 4+nc, 49]` | multi-object grid detector, YOLO layout: cx,cy,w,h in 224-px space + class scores — any Ultralytics-style decoder (conf filter + NMS), TESR ROI Studio and `predict.py` read it |
 | `probs` | `[1, nc]` | whole-frame class probabilities |
 | `box` (detection) | `[1, 4]` | one-object box, normalized cx,cy,w,h |
 | `feat` | `[1, 1280]` | embedding for the "none" similarity gate |
 
-### Multi-object detection (beta)
+### Multi-object detection (default)
 
-Live Test → **Detect multi**: one backbone pass scores 71 regions of the frame
-(7×7 feature grid, windows of 7/5/3/2 cells), each region is classified by your
-head, its box refined by your box head, then overlaps are merged (NMS). Every
-object gets its own box + center. It's coarser than YOLO — use it for demos and
-counting; for production multi-object boxes, train the YOLO dataset.
+Every trained object in view gets its own box, center (x, y) and track id
+(#1, #2 …). A small **grid detector** reads the backbone's 7×7 feature grid:
+each cell says whether an object is centred there, which class and its box.
+It is trained on automatic **mosaics** made from your single-object photos
+(1–4 objects per image, also half out of frame), so you still label one object
+per photo. Neighbouring cells that see the same object are merged into one
+score-weighted box, the mirrored frame is fused in, and every object is
+smoothed on its own — identical in the web Live Test and in `predict.py`.
 
 ## 🏭 From browser to edge — one path
 
@@ -89,7 +92,7 @@ into any project — plus an MQTT → Node-RED example.
 ## Honest limits of the in-browser model
 
 The browser trainer uses feature-embedding + a small head — perfect for
-learning and prototyping, best at **one object per frame** (multi-object is beta), and accuracy below a fully
+learning and prototyping, detects every trained object in view, with accuracy below a fully
 trained YOLO. When you outgrow it, you don't start over: download the dataset
 and train it offline with YOLO — same photos, same labels, one command.
 
@@ -108,7 +111,7 @@ and train it offline with YOLO — same photos, same labels, one command.
 5. หรือใช้โมเดลจากเว็บโดยตรง: เลือกอุปกรณ์ (PC / Pi 5 / Jetson) + กล้อง (USB / CSI)
    แล้วกด **Download Model** ได้ `model.onnx` + `predict.py` + ตัวติดตั้งตรงรุ่น,
    **ONNX only** สำหรับบท ONNX → TensorRT หรือ **Send to ROI Studio** ส่งโมเดลไปวาง ROI ต่อได้ทันที
-6. โหมด **Detect multi (beta)** ตรวจจับหลายวัตถุพร้อมกันในเฟรม แต่ละชิ้นได้กรอบ + center
+6. ค่าเริ่มต้นตรวจจับ **ทุกชิ้นในภาพ** พร้อมกัน แต่ละชิ้นได้กรอบ + center (x,y) + หมายเลข และทำให้นิ่งแยกกันทีละชิ้น
 
 คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`yolo-trainer/README.md`](yolo-trainer/README.md)
 

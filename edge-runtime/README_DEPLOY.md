@@ -50,16 +50,17 @@ python predict.py --source photo.jpg
 python predict.py --headless      # over SSH: prints results + FPS, no window
 ```
 
-Detection modes (`--mode`):
+Detection modes (`--mode`, default from `config.json`):
 
 | Mode | What you get | Notes |
 |---|---|---|
-| `single` | 1 object: box + center (x,y) px | fastest - one model run per frame |
-| `precise` | 1 object, tighter box | 25 crops per frame - slower |
-| `multi` | many objects, each with box + center | **beta** - reads the YOLO-style `output0`; boxes are coarse (32-px grid at 224) |
+| `multi` (default) | **every** trained object in view: box + center (x,y) px + track id `#1, #2 ...` | each object is tracked and smoothed on its own |
+| `single` | the one main object: box + center | slightly tighter box when only one object is ever in view |
+| `precise` | one object, 25-crop grid scan | slower |
 
-For production-grade multi-object boxes, train the YOLO dataset you can
-download from the web trainer with `yolo-trainer/train.py`.
+Multi-object threshold: `--min-conf 0.3` (default from `config.json` `multi_conf`).
+For the most accurate boxes on crowded scenes, train the YOLO dataset from the
+web trainer with `yolo-trainer/train.py`.
 
 ## 4 - Speed
 
@@ -75,8 +76,9 @@ bash build_trt.sh     # builds model_fp32.engine + model_fp16.engine and prints 
 
 - **Everything is "none"** -> `--min-conf 0.5`, or `--proto-th 0.6`, or `--no-proto`; collect more varied photos
 - **Box steadiness** -> default `--steady high` (smoothest: One Euro filter + mirror-average + hold). Fast robot / conveyor: `--steady normal` or `--steady low` (follows faster). Raw: `--steady off --tta off --hold 0`
-- **Multi mode finds nothing** -> `--min-conf 0.4`; train a `background` class of the empty scene
-- **Multi mode shows the same object twice** -> raise overlap merging: `--iou 0.3`
+- **An object is missed** -> lower `--min-conf 0.2`; add photos of it in more positions (also half out of frame)
+- **Boxes on things you did not train** -> raise `--min-conf 0.5`; train a `background` class of the empty scene
+- **The same object gets two boxes** -> `--iou 0.3`
 - **CSI on Jetson fails** -> `gst-launch-1.0 nvarguscamerasrc ! fakesink` must work first; use the system OpenCV (has GStreamer), not pip's
 - **CSI on Pi fails** -> `rpicam-hello` must work first; `sudo apt install -y python3-picamera2`
 - **USB camera will not open** -> `v4l2-ctl --list-devices`, try `--source 1`; close other apps using it

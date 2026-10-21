@@ -308,6 +308,44 @@
   }
 
   /* ---------------- dense heads (tf.Sequential of Dense layers) ---------------- */
+  /* grid detector head: Conv2D layers on the [G,G,C] map -> sigmoid -> YOLO-style output0 */
+  function emitGridHead(g, fmapName, C, G, seq, nc, S) {
+    const convs = seq.layers.filter(l => l.getClassName() === 'Conv2D');
+    let x = fmapName, cin = C;
+    convs.forEach((l, k) => {
+      const [kw, b] = l.getWeights();                        // [kh,kw,in,out]
+      const [kh, kk, ci, co] = kw.shape, kd = kw.dataSync();
+      if (ci !== cin) throw new Error('grid head shape mismatch');
+      const Wt = new Float32Array(co * ci * kh * kk);
+      for (let y = 0; y < kh; y++) for (let xx = 0; xx < kk; xx++)
+        for (let i = 0; i < ci; i++) for (let o = 0; o < co; o++)
+          Wt[((o * ci + i) * kh + y) * kk + xx] = kd[((y * kk + xx) * ci + i) * co + o];
+      x = g.op('Conv', [x, g.init('grid_w', [co, ci, kh, kk], Wt), g.f('grid_b', [co], b.dataSync())],
+               {kernel_shape: {ints: [kh, kk]}, strides: {ints: [1, 1]},
+                pads: {ints: [kh >> 1, kk >> 1, kh >> 1, kk >> 1]}});
+      const act = (l.getConfig().activation || 'linear').toLowerCase();
+      if (act === 'relu') x = g.op('Relu', [x]);
+      else if (act !== 'linear') throw new Error('unsupported grid activation ' + act);
+      cin = co;
+    });
+    if (cin !== nc + 4) throw new Error('grid head must output nc+4 channels');
+    const sig = g.op('Sigmoid', [x]);
+    const [sc, bx] = g.op('Split', [sig, g.i64('split', [nc, 4])], {axis: 1}, 'grid_part', 2);
+    const off = new Float32Array(4 * G * G);
+    for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
+      off[i * G + j] = j * S / G; off[G * G + i * G + j] = i * S / G;
+    }
+    const boxes = g.op('Add', [g.op('Mul', [bx, g.f('grid_scale', [1, 4, 1, 1], [S / G, S / G, S, S])]),
+                               g.f('grid_off', [1, 4, G, G], off)]);
+    const out = g.op('Reshape', [g.op('Concat', [boxes, sc], {axis: 1}), g.i64('shape', [1, 4 + nc, G * G])]);
+    // strongest cell over all classes -> its box, normalized 0..1
+    const flatS = g.op('Reshape', [sc, g.i64('shape', [1, nc, G * G])]);
+    const best = g.op('ArgMax', [g.op('ReduceMax', [flatS], {axes: {ints: [1]}, keepdims: 0})], {axis: 1, keepdims: 1});
+    const flatB = g.op('Reshape', [boxes, g.i64('shape', [1, 4, G * G])]);
+    const picked = g.op('Gather', [flatB, best], {axis: 2});                // [1,4,1,1]
+    const topBox = g.op('Mul', [g.op('Reshape', [picked, g.i64('shape', [1, 4])]), g.f('inv_s', [], [1 / S])]);
+    return {out, topBox};
+  }
   /* spatial box head: Conv2D 1x1 on the [G,G,C] map -> Flatten (NHWC order) -> Dense... */
   function emitSpatialHead(g, fmapName, C, G, seq) {
     const conv = seq.layers.find(l => l.getClassName() === 'Conv2D');
@@ -364,7 +402,7 @@
 
   /* ---------------- public: build the full model ---------------- */
   function buildModel(opts) {
-    const {net, head, boxHead, boxHeadS, protos, task} = opts;
+    const {net, head, boxHead, boxHeadS, detHead, protos, task} = opts;
     const size = 224;
     const g = new Graph();
     const names = head.classNames.slice();
@@ -389,7 +427,16 @@
     const outputs = [];
     const featOut = g.out('Identity', [feat], {}, 'feat');
 
-    if (task === 'detect' && boxHead) {
+    if (task === 'detect' && detHead) {
+      // multi-object grid detector: every 7x7 cell -> (cx, cy, w, h) + per-class score
+      const det = emitGridHead(g, fmap.name, C, G, detHead, nc, size);   // [1,4+nc,G*G]
+      g.out('Identity', [det.out], {}, 'output0');
+      outputs.push({name: 'output0', dims: [1, 4 + nc, G * G]});
+      g.out('Identity', [emitHead(g, feat, clsL, 'softmax')], {}, 'probs');
+      outputs.push({name: 'probs', dims: [1, nc]});
+      g.out('Identity', [det.topBox], {}, 'box');                         // box of the strongest cell
+      outputs.push({name: 'box', dims: [1, 4]});
+    } else if (task === 'detect' && boxHead) {
       const boxL = denseLayers(boxHead);
       const geo = windowGeometry(G, size);
       const N = geo.length;

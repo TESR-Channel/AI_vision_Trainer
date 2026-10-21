@@ -295,8 +295,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="row">
           <button class="gold" id="btnLive" onclick="toggleLive()">&#9654; Start Live Test</button>
           <select id="mode" style="width:250px" onchange="lastBoxW=null;lastLabel=null;lastMulti=null;syncModeUI();">
-            <option value="detect">Detect &mdash; one object, box + center</option>
-            <option value="multi">Detect multi &mdash; many objects (beta)</option>
+            <option value="detect">Detect &mdash; main object only</option>
+            <option value="multi">Detect &mdash; every object, box + center</option>
             <option value="classify">Classify &mdash; whole frame</option>
           </select>
           <select id="prec" style="width:250px" title="How the box is found">
@@ -313,11 +313,11 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="hint" id="gatesHint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the
         frame does not <i>look like</i> any of your training photos (feature similarity, learned
         automatically at training time).</div>
-        <div class="hint" id="multiHint" style="display:none"><b>Multi (beta)</b> scores 71 regions of
-        the frame in <b>one</b> backbone pass, keeps every region that looks like a trained class, refines
-        each box with your box model and merges overlaps (NMS). Every object gets its own box + center.
-        Boxes are coarser than YOLO; a <b>background</b> class of your empty scene cuts false hits a lot.
-        This is exactly what the exported <code>model.onnx</code> computes in its <code>output0</code>.</div>
+        <div class="hint" id="multiHint" style="display:none"><b>Every object</b>: each cell of a 7&times;7
+        grid over the frame says whether an object is centred there, which class and its box &mdash; so every
+        trained object in view gets its own box, center (x, y) and id (#1, #2 &hellip;), each smoothed on its own.
+        It was trained on automatic mosaics of your photos (several objects, also half out of frame). This is
+        exactly what <code>model.onnx</code> outputs as <code>output0</code> on the device and in ROI Studio.</div>
         <div class="hint" id="detHint"><b>Precise</b> scans 25 crops per frame to find the
         object wherever it is (~1 fps); <b>Fast</b> uses the trained box model (real-time but
         coarser &mdash; needs training photos with the object in many positions). Both show a
@@ -347,9 +347,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
             </select></div>
           <div id="tgtModeBox"><label class="tag">Detection on device</label><br>
             <select id="tgtMode" style="width:220px" onchange="saveTargetUI()">
-              <option value="single">One object &mdash; fast box</option>
+              <option value="multi" selected>Every object in view (default)</option>
+              <option value="single">Only the main object</option>
               <option value="precise">One object &mdash; precise (slower)</option>
-              <option value="multi">Many objects (beta)</option>
             </select></div>
         </div>
         <div class="hint" id="tgtHint"></div>
@@ -433,7 +433,7 @@ function toggleLang(){
 
 /* ============ state ============ */
 let classes = [];   // [{name, examples: [{feat, thumb, src, w, h, aug, box}]}]  box=[cx,cy,w,h(,angleDeg)] or null
-let net = null, head = null, boxHead = null, boxHeadS = null, camOK = false, liveOn = false;
+let net = null, head = null, boxHead = null, boxHeadS = null, detHead = null, camOK = false, liveOn = false;
 let task = 'detect';                       // 'detect' | 'classify'
 const REC = {detect:{min:40, good:80}, classify:{min:30, good:60}};
 
@@ -1153,7 +1153,18 @@ function bbInput(el){
 function fmapOf(el){ return tf.tidy(() => net.model.execute(bbInput(el), fmapNode())); }   // [1,G,G,C]
 async function predictEl(el){
   let ft, sBox = null;
-  if (boxHeadS){
+  if (detHead){
+    const fm = tf.tidy(() => {
+      const x = bbInput(el);
+      return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode());
+    });
+    ft = tf.tidy(() => fm.slice([0, 0, 0, 0], [1, -1, -1, -1]).mean([1, 2]).squeeze());
+    const rt = gridRows(fm); const rows = await rt.array(); rt.dispose(); fm.dispose();
+    const top = rs => { let best = rs[0], bm = -1;
+      for (const r of rs){ const m = Math.max(...r.slice(4)); if (m > bm){ bm = m; best = r; } } return best; };
+    const a = top(rows[0]), b = top(rows[1]);
+    sBox = [(a[0] + 1 - b[0])/2, (a[1] + b[1])/2, (a[2] + b[2])/2, (a[3] + b[3])/2];
+  } else if (boxHeadS){
     // one batch = the frame + its mirror; the two boxes are averaged (steadier box)
     const fm = tf.tidy(() => {
       const x = bbInput(el);
@@ -1321,8 +1332,11 @@ async function train(){
         }}
       });
       Xb.dispose(); Yb.dispose();
-      boxHeadS = await trainSpatialBox(usable.flatMap(c => pick(c)), clsShare + 15);
-    } else boxHeadS = null;
+      boxHeadS = null;
+      detHead = await trainGridDetector(
+        usable.flatMap((c, i) => pick(c).map(e => ({e, ci: i, bg: TESR_ONNX.isBackground(c.name)}))),
+        names.length, clsShare + 15);
+    } else { boxHeadS = null; detHead = null; }
     protos = computeProtos(usable.map(c => pick(c).map(e=>e.feat)), names);
     const secs = ((performance.now()-t0)/1000).toFixed(1);
     document.getElementById('tbar').style.width = '100%';
@@ -1335,7 +1349,7 @@ async function train(){
     modelVersion++; onnxCache = null; protoT = null; lastMulti = null;
     const ms = document.getElementById('mode');
     if (task !== 'detect') ms.value = 'classify';
-    else if (ms.value === 'classify') ms.value = 'detect';
+    else ms.value = detHead ? 'multi' : 'detect';
     syncModeUI();
     setStep(4);
   } catch(e) {
@@ -1448,13 +1462,235 @@ async function trainSpatialBox(examples, p0){
   return model;
 }
 
+/* ============ multi-object grid detector ============
+   Every cell of the backbone's 7x7 feature grid answers: is an object CENTRED here,
+   which class, and what box. Trained on automatic MOSAICS: your single-object photos
+   are cut and pasted 1-4 at a time (also half out of frame) into one image, so the
+   model learns to find every object in view. Same math runs in model.onnx (output0). */
+const GRID_MULTI_CONF = 0.3;
+function visBox(b){
+  const x1 = Math.max(0, b[0] - b[2]/2), y1 = Math.max(0, b[1] - b[3]/2);
+  const x2 = Math.min(1, b[0] + b[2]/2), y2 = Math.min(1, b[1] + b[3]/2);
+  return [(x1 + x2)/2, (y1 + y2)/2, Math.max(0.02, x2 - x1), Math.max(0.02, y2 - y1)];
+}
+function boxIoU4(a, b){
+  return boxIoU([a[0]-a[2]/2, a[1]-a[3]/2, a[0]+a[2]/2, a[1]+a[3]/2],
+                [b[0]-b[2]/2, b[1]-b[3]/2, b[0]+b[2]/2, b[1]+b[3]/2]);
+}
+function gridBase(it){                       // one photo, moved / zoomed / mirrored, maybe half out of frame
+  const c = document.createElement('canvas'); c.width = 224; c.height = 224;
+  const x = c.getContext('2d'), b = it.box;
+  const s = 0.8 + Math.random()*0.4, bw = b[2]*s, bh = b[3]*s;
+  const edge = Math.random() < 0.35;
+  const rx = edge ? [bw*0.05, 1 - bw*0.05] : [Math.min(bw/2, .5), Math.max(1 - bw/2, .5)];
+  const ry = edge ? [bh*0.05, 1 - bh*0.05] : [Math.min(bh/2, .5), Math.max(1 - bh/2, .5)];
+  const ncx = rx[0] + Math.random()*(rx[1] - rx[0]), ncy = ry[0] + Math.random()*(ry[1] - ry[0]);
+  const flip = Math.random() < 0.5;
+  const bright = (0.75 + Math.random()*0.5).toFixed(2);
+  x.fillStyle = 'rgb(114,114,114)'; x.fillRect(0, 0, 224, 224);
+  x.save(); x.filter = `brightness(${bright})`;
+  if (flip){ x.translate(224, 0); x.scale(-1, 1); }
+  x.translate((ncx - b[0]*s)*224, (ncy - b[1]*s)*224); x.scale(s, s);
+  x.drawImage(it.cv, 0, 0); x.restore();
+  const objs = it.bg ? [] : [{c: it.ci, box: visBox([flip ? 1 - ncx : ncx, ncy, bw, bh])}];
+  return {cv: c, x, objs, bright};
+}
+function gridMosaic(pool, fg){
+  const m = gridBase(pool[Math.floor(Math.random()*pool.length)]);
+  const extra = Math.floor(Math.random()*4);
+  for (let k = 0; k < extra && fg.length; k++){
+    const it = fg[Math.floor(Math.random()*fg.length)], b = it.box;
+    const sx = Math.max(0, (b[0] - b[2]*0.55)*224), sy = Math.max(0, (b[1] - b[3]*0.55)*224);
+    const sw = Math.min(224, (b[0] + b[2]*0.55)*224) - sx, sh = Math.min(224, (b[1] + b[3]*0.55)*224) - sy;
+    if (sw < 4 || sh < 4) continue;
+    const s = 0.75 + Math.random()*0.4, cw = Math.max(8, sw*s), ch = Math.max(8, sh*s);
+    if (cw >= 200 || ch >= 200) continue;
+    for (let t = 0; t < 25; t++){
+      const px = -cw*0.4 + Math.random()*(224 - cw*0.2), py = -ch*0.4 + Math.random()*(224 - ch*0.2);
+      const pb = visBox([(px + cw/2)/224, (py + ch/2)/224, cw/224, ch/224]);
+      if (!m.objs.every(o => Math.abs(pb[0] - o.box[0]) > (pb[2] + o.box[2])/2*0.9 ||
+                             Math.abs(pb[1] - o.box[1]) > (pb[3] + o.box[3])/2*0.9)) continue;
+      const flip = Math.random() < 0.5;
+      m.x.save(); m.x.filter = `brightness(${m.bright})`;
+      if (flip){ m.x.translate(px + cw, py); m.x.scale(-1, 1); m.x.drawImage(it.cv, sx, sy, sw, sh, 0, 0, cw, ch); }
+      else m.x.drawImage(it.cv, sx, sy, sw, sh, px, py, cw, ch);
+      m.x.restore();
+      m.objs.push({c: it.ci, box: visBox([(px + cw/2)/224, (py + ch/2)/224, b[2]*224*s/224, b[3]*224*s/224])});
+      break;
+    }
+  }
+  return m;
+}
+function gridLoss(yT, yP, nc){
+  return tf.tidy(() => {
+    const hm = yT.slice([0,0,0,0], [-1,-1,-1,nc]), bx = yT.slice([0,0,0,nc], [-1,-1,-1,4]);
+    const mk = yT.slice([0,0,0,nc+4], [-1,-1,-1,1]);
+    const ph = tf.sigmoid(yP.slice([0,0,0,0], [-1,-1,-1,nc])), pb = tf.sigmoid(yP.slice([0,0,0,nc], [-1,-1,-1,4]));
+    const pos = hm.mul(tf.log(ph.add(1e-6))).mul(tf.square(tf.sub(1, ph)));
+    const neg = tf.sub(1, hm).mul(tf.log(tf.sub(1, ph).add(1e-6))).mul(tf.square(ph));
+    const npos = tf.maximum(mk.sum(), 1);
+    return pos.add(neg).sum().neg().div(npos).add(mk.mul(pb.sub(bx).abs()).sum().div(npos).mul(5));
+  });
+}
+async function trainGridDetector(items, nc, p0){
+  const bar = document.getElementById('tbar');
+  let src = items.filter(it => !it.e.aug);
+  if (src.length < 8) src = items;                       // tiny sets: use ✨ copies too
+  const pool = [];
+  for (const it of src){                                 // 224x224 copies, like the model sees
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = it.e.src; });
+    const cv = document.createElement('canvas'); cv.width = 224; cv.height = 224;
+    cv.getContext('2d').drawImage(img, 0, 0, 224, 224);
+    pool.push({cv, ci: it.ci, bg: it.bg, box: ellipseBox(it.e.box, it.e.w, it.e.h)});
+  }
+  const fg = pool.filter(p => !p.bg);
+  const N = Math.max(600, Math.min(1600, pool.length*40));
+  let G = 0, C = 0, per = 0;
+  const feats = [], targets = [];
+  const BATCH = 16;
+  for (let i = 0; i < N; i += BATCH){
+    const n = Math.min(BATCH, N - i), cvs = [];
+    for (let k = 0; k < n; k++){
+      const smp = ((i + k) % 3) ? gridMosaic(pool, fg) : gridBase(pool[(i + k) % pool.length]);
+      cvs.push(smp.cv); targets.push(smp.objs);
+    }
+    const q = tf.tidy(() => {
+      const fm = net.model.execute(bbInput(tf.stack(cvs.map(c => tf.browser.fromPixels(c)))), fmapNode());
+      return fm.mul(255/6).round().clipByValue(0, 255).cast('int32');
+    });
+    if (!G){ G = q.shape[1]; C = q.shape[3]; per = G*G*C; }
+    const d = await q.data(); q.dispose();
+    for (let k = 0; k < n; k++) feats.push(Uint8Array.from(d.subarray(k*per, (k + 1)*per)));
+    bar.style.width = (p0 + 25*Math.min(1, (i + n)/N)) + '%';
+    document.getElementById('tmetrics').innerHTML =
+      `<span>Multi-object detector <b>preparing ${Math.min(i + n, N)}/${N}</b></span>`;
+    await tf.nextFrame();
+  }
+  const D = nc + 5, tgt = targets.map(objs => {           // [G,G,nc | cx,cy,w,h | mask]
+    const t = new Float32Array(G*G*D);
+    for (const o of objs){
+      const j = Math.min(G - 1, Math.floor(o.box[0]*G)), i = Math.min(G - 1, Math.floor(o.box[1]*G)), at = (i*G + j)*D;
+      t[at + o.c] = 1;
+      t[at + nc] = o.box[0]*G - j; t[at + nc + 1] = o.box[1]*G - i; t[at + nc + 2] = o.box[2]; t[at + nc + 3] = o.box[3];
+      t[at + nc + 4] = 1;
+    }
+    return t;
+  });
+  const model = tf.sequential({layers:[
+    tf.layers.conv2d({inputShape:[G, G, C], filters:64, kernelSize:1, activation:'relu'}),
+    tf.layers.conv2d({filters:64, kernelSize:3, padding:'same', activation:'relu'}),
+    tf.layers.conv2d({filters:nc + 4, kernelSize:1}),
+  ]});
+  const opt = tf.train.adam(0.001);
+  const BS = 32, nb = Math.ceil(N/BS), epochs = Math.max(20, Math.min(80, Math.round(2400/nb)));
+  const order = [...Array(N).keys()], xb = new Float32Array(BS*per), yb = new Float32Array(BS*G*G*D), k6 = 6/255;
+  for (let ep = 0; ep < epochs; ep++){
+    for (let i = N - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    let tot = 0;
+    for (let b = 0; b < nb; b++){
+      const idx = order.slice(b*BS, (b + 1)*BS), n = idx.length;
+      for (let k = 0; k < n; k++){
+        const f = feats[idx[k]], o = k*per;
+        for (let t = 0; t < per; t++) xb[o + t] = f[t]*k6;
+        yb.set(tgt[idx[k]], k*G*G*D);
+      }
+      const xs = tf.tensor4d(xb.subarray(0, n*per), [n, G, G, C]);
+      const ys = tf.tensor4d(yb.subarray(0, n*G*G*D), [n, G, G, D]);
+      const l = opt.minimize(() => gridLoss(ys, model.apply(xs), nc), true);
+      tot += (await l.data())[0]; l.dispose(); xs.dispose(); ys.dispose();
+    }
+    bar.style.width = (p0 + 25 + (100 - p0 - 25)*(ep + 1)/epochs) + '%';
+    document.getElementById('tmetrics').innerHTML =
+      `<span>Multi-object detector <b>${ep + 1}/${epochs}</b></span>` +
+      `<span>loss <b>${(tot/nb).toFixed(3)}</b></span><span>${N} mosaic samples</span>`;
+    await tf.nextFrame();
+  }
+  model.nc = nc;
+  return model;
+}
+/* raw grid output -> [{cls, name, conf, box:[cx,cy,w,h] 0..1}] - same as decode_multi() in predict.py */
+function gridRows(fm){                       // fm [n,G,G,C] -> per image Float32 rows [G*G][4+nc] like output0
+  return tf.tidy(() => {
+    const o = tf.sigmoid(detHead.predict(fm)), nc = detHead.nc, G = o.shape[1];
+    const sc = o.slice([0,0,0,0], [-1,-1,-1,nc]), bx = o.slice([0,0,0,nc], [-1,-1,-1,4]);
+    const gx = tf.tensor(Array.from({length: G*G}, (_, k) => k % G), [1, G, G, 1]);
+    const gy = tf.tensor(Array.from({length: G*G}, (_, k) => Math.floor(k / G)), [1, G, G, 1]);
+    const cx = bx.slice([0,0,0,0], [-1,-1,-1,1]).add(gx).div(G), cy = bx.slice([0,0,0,1], [-1,-1,-1,1]).add(gy).div(G);
+    return tf.concat([cx, cy, bx.slice([0,0,0,2], [-1,-1,-1,2]), sc], 3).reshape([o.shape[0], G*G, 4 + nc]);
+  });
+}
+function gridDecode(rows, thr){            // same algorithm as decode_multi() in predict.py
+  const names = head.classNames, nc = names.length, cand = [];
+  for (const r of rows){
+    let c = 0; for (let k = 1; k < nc; k++) if (r[4 + k] > r[4 + c]) c = k;
+    if (r[4 + c] < thr || TESR_ONNX.isBackground(names[c])) continue;
+    cand.push({cls: c, conf: r[4 + c], box: [r[0], r[1], r[2], r[3]]});
+  }
+  cand.sort((a, b) => b.conf - a.conf);
+  const groups = [];
+  for (const d of cand){
+    const [cx, cy, w, h] = d.box, xy = [cx - w/2, cy - h/2, cx + w/2, cy + h/2];
+    let g = groups.find(g => { const o = boxIoU(g.xyxy, xy);
+      const inside = g.xyxy[0] <= cx && cx <= g.xyxy[2] && g.xyxy[1] <= cy && cy <= g.xyxy[3];
+      return (g.cls === d.cls && (o > 0.45 || inside)) || o > 0.6; });
+    if (g) g.m.push(d);
+    else if (groups.length < 20) groups.push({cls: d.cls, conf: d.conf, xyxy: xy, m: [d]});
+  }
+  return groups.map(g => {                   // score-weighted box of every cell that saw this object
+    const W = g.m.reduce((a, d) => a + d.conf, 0), b = [0, 0, 0, 0];
+    g.m.forEach(d => d.box.forEach((v, k) => b[k] += v*d.conf/W));
+    return {cls: g.cls, name: names[g.cls], conf: g.conf, box: b};
+  });
+}
+/* many objects at once: each one tracked and smoothed with its own Steadier (like predict.py) */
+class MultiSteadier {
+  constructor(preset, hold){ this.preset = preset; this.hold = hold; this.tracks = []; this.next = 1; }
+  update(dets){
+    const pairs = [];
+    this.tracks.forEach((t, ti) => dets.forEach((d, di) => {
+      const o = boxIoU4(t.box, d.box);
+      const dist = Math.hypot(t.box[0] - d.box[0], t.box[1] - d.box[1]) / Math.max(1e-6, (t.box[2] + t.box[3] + d.box[2] + d.box[3])/4);
+      if (o > 0.15 || dist < 0.6) pairs.push([-(o - 0.2*dist), ti, di]);
+    }));
+    pairs.sort((a, b) => a[0] - b[0]);
+    const ut = new Set(), ud = new Set(), out = [];
+    for (const [, ti, di] of pairs){
+      if (ut.has(ti) || ud.has(di)) continue;
+      ut.add(ti); ud.add(di);
+      const t = this.tracks[ti], d = dets[di]; t.box = d.box;
+      const r = t.st.update(d.name, d.conf, d.box);
+      if (r.box) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+    }
+    const alive = [];
+    this.tracks.forEach((t, ti) => {
+      if (!ut.has(ti)){
+        const r = t.st.update('none', 0, null);
+        if (!r.box) return;
+        out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: t.cls});
+      }
+      alive.push(t);
+    });
+    this.tracks = alive;
+    dets.forEach((d, di) => {
+      if (ud.has(di)) return;
+      const t = {id: this.next++, st: new Steadier(this.preset, this.hold), box: d.box, cls: d.cls};
+      const r = t.st.update(d.name, d.conf, d.box);
+      this.tracks.push(t);
+      out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+    });
+    return out.sort((a, b) => a.id - b.id);
+  }
+}
+let multiSteadier = null;
+
 /* ============ live test ============ */
 let lastBoxW = null, lastLabel = null, lastDetName = null, lastDetConf = 0, lastMulti = null;
 async function toggleLive(){
   liveOn = !liveOn;
   document.getElementById('btnLive').textContent = liveOn ? '\u23f8 Stop' : '\u25b6 Start Live Test';
   if (liveOn) { lastBoxW = null; lastLabel = null; lastMulti = null; steadier = new Steadier(STEADY_DEFAULT, STEADY_HOLD);
-                renderLoopW(); inferLoopW(); }
+                multiSteadier = null; renderLoopW(); inferLoopW(); }
 }
 /* Box steadier - same One Euro filter + deadband + hold as predict.py (tuned on real
    footage). The preset chosen here is also written into the exported config.json. */
@@ -1542,7 +1778,7 @@ function renderLoopW(){
         const px = cx*tv.width, py = cy*tv.height;
         tx.beginPath(); tx.moveTo(px-10,py); tx.lineTo(px+10,py);
         tx.moveTo(px,py-10); tx.lineTo(px,py+10); tx.lineWidth = 2; tx.stroke();
-        const label = `#${k+1} ${d.name} ${(100*d.conf).toFixed(0)}%`;
+        const label = `#${d.id || k+1} ${d.name} ${(100*d.conf).toFixed(0)}%`;
         const tw = tx.measureText(label).width + 12;
         tx.fillStyle = 'rgba(20,17,12,.82)';
         tx.fillRect(x, Math.max(0, y-24), tw, 24);
@@ -1571,12 +1807,13 @@ async function inferLoopW(){
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
     if (mode === 'multi') {
-      if (!boxHead) { await tf.nextFrame(); continue; }
-      const dets = await predictMulti(video);
+      if (!boxHead && !detHead) { await tf.nextFrame(); continue; }
+      if (!multiSteadier) multiSteadier = new MultiSteadier(STEADY_DEFAULT, STEADY_HOLD);
+      const dets = multiSteadier.update(await predictMulti(video));
       lastMulti = dets;
       document.getElementById('pred').innerHTML = dets.length
         ? dets.map((d, k) => `<div class="prow"><div class="pname" style="width:auto">
-            \ud83d\udccd <b>#${k+1} ${d.name}</b> ${(100*d.conf).toFixed(0)}% &nbsp;\u00b7&nbsp;
+            \ud83d\udccd <b>#${d.id || k+1} ${d.name}</b> ${(100*d.conf).toFixed(0)}% &nbsp;\u00b7&nbsp;
             center (${Math.round(d.box[0]*video.videoWidth)}, ${Math.round(d.box[1]*video.videoHeight)})px
             </div></div>`).join('')
         : '<div class="msg" style="margin-top:0">none \u2014 no trained object in view</div>';
@@ -1645,6 +1882,13 @@ function boxIoU(a, b){
   return inter / ((a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter);
 }
 async function predictMulti(el){
+  if (detHead){                              // frame + its mirror, fused (steadier boxes)
+    const fm = tf.tidy(() => { const x = bbInput(el);
+      return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode()); });
+    const rt = gridRows(fm), rows = await rt.array(); rt.dispose(); fm.dispose();
+    const mir = rows[1].map(r => { const q = r.slice(); q[0] = 1 - q[0]; return q; });
+    return gridDecode(rows[0].concat(mir), GRID_MULTI_CONF);
+  }
   const cv = makeSrc(el);                                   // 224x224, same as training
   if (protos && !protoT) protoT = tf.tidy(() => {
     const C = tf.tensor2d(protos.C);
@@ -1708,7 +1952,7 @@ function syncTargetUI(load){
   // device + camera are chosen later on the computer:  python export.py --target pi|jetson [--camera csi]
   document.getElementById('tgt').value = 'pc'; document.getElementById('tgtCam').value = 'usb';
   if (load){ try{ const v = JSON.parse(localStorage.getItem('tesr_target') || '{}');
-    if (v.mode) document.getElementById('tgtMode').value = v.mode; }catch(e){} }
+    }catch(e){} }
   document.getElementById('tgtHint').innerHTML = t(
     'Raspberry Pi / Jetson: export on your computer with <code>python export.py --target pi</code> or <code>--target jetson</code> (add <code>--camera csi</code> for a ribbon camera).',
     'Raspberry Pi / Jetson: export บนคอมด้วย <code>python export.py --target pi</code> หรือ <code>--target jetson</code> (กล้องสายแพเติม <code>--camera csi</code>)');
@@ -1746,6 +1990,7 @@ async function buildOnnx(){
   if (onnxCache && onnxCache.version === modelVersion) return onnxCache;
   const r = TESR_ONNX.buildModel({net, head, boxHead: task === 'detect' ? boxHead : null,
                                   boxHeadS: task === 'detect' ? boxHeadS : null,
+                                  detHead: task === 'detect' ? detHead : null,
                                   protos, task: boxHead && task === 'detect' ? 'detect' : 'classify'});
   onnxCache = {version: modelVersion, bytes: r.bytes, info: r, check: null};
   return onnxCache;
@@ -1774,6 +2019,15 @@ async function selfCheck(oc){
   let d = 0, fd = 0, fm = 1e-6;
   ref.forEach((v, i) => { d = Math.max(d, Math.abs(v - out.probs.data[i])); });
   refF.forEach((v, i) => { fd = Math.max(fd, Math.abs(v - out.feat.data[i])); fm = Math.max(fm, Math.abs(v)); });
+  if (detHead && task === 'detect' && out.output0){
+    const fm = fmapOf(cv), rt = gridRows(fm);
+    const rows = (await rt.array())[0]; rt.dispose(); fm.dispose();
+    const o = out.output0.data, nc = head.classNames.length, NN = rows.length;
+    rows.forEach((r, k) => {                       // output0 is in 224-px units, browser rows 0..1
+      for (let a = 0; a < 4; a++) d = Math.max(d, Math.abs(r[a] - o[a*NN + k]/224));
+      for (let c = 0; c < nc; c++) d = Math.max(d, Math.abs(r[4 + c] - o[(4 + c)*NN + k]));
+    });
+  }
   if (boxHeadS && task === 'detect' && out.box){
     const rb = tf.tidy(() => boxHeadS.predict(fmapOf(cv)).squeeze());
     const rbv = await rb.array(); rb.dispose();
@@ -1819,6 +2073,7 @@ function deployConfig(oc){
     detect_mode: det ? document.getElementById('tgtMode').value : 'classify',
     min_conf: +document.getElementById('minConf').value,
     steady: {preset: STEADY_DEFAULT, hold: STEADY_HOLD, mirror_average: 'auto'},
+    multi_conf: GRID_MULTI_CONF, detector: detHead ? 'grid7' : 'single',
     target: document.getElementById('tgt').value,
     camera: document.getElementById('tgtCam').value, camera_index: 0,
     prototypes: protos ? {names: protos.names, threshold: +protos.thr.toFixed(3),

@@ -10,7 +10,7 @@ Windows : ดับเบิลคลิก install_windows.bat
 Linux   : bash install_linux.sh
 
 venv\Scripts\activate          (Linux: source venv/bin/activate)
-python predict.py              ← เปิดกล้อง เห็นกรอบ + center (x,y) · กด q ออก
+python predict.py              ← เปิดกล้อง เห็นกรอบ + center (x,y) ทุกชิ้นในภาพ · กด q ออก
 ```
 
 ## ขั้นที่ 2 — บนคอมพิวเตอร์: export ไปอุปกรณ์
@@ -41,16 +41,15 @@ Jetson อยากเร็วขึ้น: `bash build_trt.sh` (สร้า�
 **ใส่ในโค้ด Python ของคุณเอง** — วาง `predict.py` + `model.onnx` + `config.json` ไว้โฟลเดอร์เดียวกัน:
 ```python
 import cv2
-from predict import load_config, Model, decide
+from predict import load_config, Model, decode_multi
 
 cfg = load_config()
 model = Model(cfg)                         # โหลดครั้งเดียว นอก loop
 frame = cv2.imread("photo.jpg")            # หรือภาพจากกล้อง
 out = model.run(frame)
-name, conf, _ = decide(model, out, 0.65, None)      # ชื่อคลาส หรือ "none"
-if "box" in out:
-    cx, cy, w, h = out["box"][0]                    # 0..1 ของภาพ
-    print(name, conf, "center px:", int(cx * frame.shape[1]), int(cy * frame.shape[0]))
+for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นในภาพ
+    cx, cy, w, h = d["box"]                          # 0..1 ของภาพ
+    print(d["name"], d["conf"], "center px:", int(cx * frame.shape[1]), int(cy * frame.shape[0]))
 ```
 👉 เอา `name` / center ไปสั่งแขนกล, PLC, MQTT → Node-RED ได้เลย
 
@@ -68,7 +67,8 @@ if "box" in out:
 | ขึ้น `none` ตลอด | `python predict.py --min-conf 0.5` หรือ `--no-proto` |
 | จับผิดของ | `--min-conf 0.8` · เทรนคลาส `background` (ฉากว่าง) เพิ่ม |
 | กรอบตามช้าไป (แขนกล / สายพานเร็ว) | `--steady normal` หรือ `--steady low` (ค่าเริ่มต้น `high` = นิ่งที่สุด) |
-| อยากได้หลายวัตถุ | `--mode multi` (beta) |
+| เจอวัตถุไม่ครบ | `--min-conf 0.2` · ถ่ายรูปวัตถุนั้นเพิ่มหลายตำแหน่ง |
+| อยากได้แค่ชิ้นหลักชิ้นเดียว | `--mode single` |
 | กล้องไม่เปิด | `--source 1` · ปิดแท็บเว็บ / Zoom ที่ใช้กล้องอยู่ |
 
 รายละเอียดเต็ม → `README_DEPLOY.md`
