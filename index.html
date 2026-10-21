@@ -1497,7 +1497,7 @@ function gridBase(it){                       // one photo, moved / zoomed / mirr
 }
 function gridMosaic(pool, fg){
   const m = gridBase(pool[Math.floor(Math.random()*pool.length)]);
-  const extra = Math.floor(Math.random()*4);
+  const extra = Math.floor(Math.random()*6);
   for (let k = 0; k < extra && fg.length; k++){
     const it = fg[Math.floor(Math.random()*fg.length)], b = it.box;
     const sx = Math.max(0, (b[0] - b[2]*0.55)*224), sy = Math.max(0, (b[1] - b[3]*0.55)*224);
@@ -1508,8 +1508,13 @@ function gridMosaic(pool, fg){
     for (let t = 0; t < 25; t++){
       const px = -cw*0.4 + Math.random()*(224 - cw*0.2), py = -ch*0.4 + Math.random()*(224 - ch*0.2);
       const pb = visBox([(px + cw/2)/224, (py + ch/2)/224, cw/224, ch/224]);
-      if (!m.objs.every(o => Math.abs(pb[0] - o.box[0]) > (pb[2] + o.box[2])/2*0.9 ||
-                             Math.abs(pb[1] - o.box[1]) > (pb[3] + o.box[3])/2*0.9)) continue;
+      // objects may touch / overlap a little (real scenes do), but not hide each other
+      if (!m.objs.every(o => {
+        const ix = Math.max(0, Math.min(pb[0] + pb[2]/2, o.box[0] + o.box[2]/2) - Math.max(pb[0] - pb[2]/2, o.box[0] - o.box[2]/2));
+        const iy = Math.max(0, Math.min(pb[1] + pb[3]/2, o.box[1] + o.box[3]/2) - Math.max(pb[1] - pb[3]/2, o.box[1] - o.box[3]/2));
+        return ix*iy < 0.2*Math.min(pb[2]*pb[3], o.box[2]*o.box[3]) &&
+               Math.hypot(pb[0] - o.box[0], pb[1] - o.box[1]) > 0.35*(pb[2] + pb[3] + o.box[2] + o.box[3])/2;
+      })) continue;
       const flip = Math.random() < 0.5;
       m.x.save(); m.x.filter = `brightness(${m.bright})`;
       if (flip){ m.x.translate(px + cw, py); m.x.scale(-1, 1); m.x.drawImage(it.cv, sx, sy, sw, sh, 0, 0, cw, ch); }
@@ -1620,6 +1625,22 @@ function gridRows(fm){                       // fm [n,G,G,C] -> per image Float3
     return tf.concat([cx, cy, bx.slice([0,0,0,2], [-1,-1,-1,2]), sc], 3).reshape([o.shape[0], G*G, 4 + nc]);
   });
 }
+function gridPeaks(rows){                  // keep a cell only where its class score is the 3x3 local max
+  const N = rows.length, G = Math.round(Math.sqrt(N));
+  if (G*G !== N) return rows;
+  return rows.map((r, k) => {
+    const i = Math.floor(k / G), j = k % G, q = r.slice();
+    for (let c = 4; c < r.length; c++){
+      let mx = -1;
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++){
+        const a = i + di, b = j + dj;
+        if (a >= 0 && a < G && b >= 0 && b < G) mx = Math.max(mx, rows[a*G + b][c]);
+      }
+      if (r[c] < mx) q[c] = 0;
+    }
+    return q;
+  });
+}
 function gridDecode(rows, thr){            // same algorithm as decode_multi() in predict.py
   const names = head.classNames, nc = names.length, cand = [];
   for (const r of rows){
@@ -1633,7 +1654,7 @@ function gridDecode(rows, thr){            // same algorithm as decode_multi() i
     const [cx, cy, w, h] = d.box, xy = [cx - w/2, cy - h/2, cx + w/2, cy + h/2];
     let g = groups.find(g => { const o = boxIoU(g.xyxy, xy);
       const inside = g.xyxy[0] <= cx && cx <= g.xyxy[2] && g.xyxy[1] <= cy && cy <= g.xyxy[3];
-      return (g.cls === d.cls && (o > 0.45 || inside)) || o > 0.6; });
+      return inside || (g.cls === d.cls && o > 0.45) || o > 0.5; });
     if (g) g.m.push(d);
     else if (groups.length < 20) groups.push({cls: d.cls, conf: d.conf, xyxy: xy, m: [d]});
   }
@@ -1644,9 +1665,11 @@ function gridDecode(rows, thr){            // same algorithm as decode_multi() i
   });
 }
 /* many objects at once: each one tracked and smoothed with its own Steadier (like predict.py) */
-class MultiSteadier {
-  constructor(preset, hold){ this.preset = preset; this.hold = hold; this.tracks = []; this.next = 1; }
-  update(dets){
+class MultiSteadier {                       // same rules as MultiSteadier in predict.py
+  constructor(preset, hold, confirm){ this.preset = preset; this.hold = hold; this.confirm = confirm || 2; this.tracks = []; }
+  newId(){ const used = new Set(this.tracks.map(t => t.id)); let i = 1; while (used.has(i)) i++; return i; }
+  update(dets, startConf){
+    startConf = startConf || 0;
     const pairs = [];
     this.tracks.forEach((t, ti) => dets.forEach((d, di) => {
       const o = boxIoU4(t.box, d.box);
@@ -1658,13 +1681,14 @@ class MultiSteadier {
     for (const [, ti, di] of pairs){
       if (ut.has(ti) || ud.has(di)) continue;
       ut.add(ti); ud.add(di);
-      const t = this.tracks[ti], d = dets[di]; t.box = d.box;
+      const t = this.tracks[ti], d = dets[di]; t.box = d.box; t.hits++;
       const r = t.st.update(d.name, d.conf, d.box);
-      if (r.box) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+      if (r.box && t.hits >= this.confirm) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
     }
     const alive = [];
     this.tracks.forEach((t, ti) => {
       if (!ut.has(ti)){
+        if (t.hits < this.confirm) return;                     // never confirmed: drop
         const r = t.st.update('none', 0, null);
         if (!r.box) return;
         out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: t.cls});
@@ -1673,11 +1697,11 @@ class MultiSteadier {
     });
     this.tracks = alive;
     dets.forEach((d, di) => {
-      if (ud.has(di)) return;
-      const t = {id: this.next++, st: new Steadier(this.preset, this.hold), box: d.box, cls: d.cls};
+      if (ud.has(di) || d.conf < startConf) return;
+      const t = {id: this.newId(), st: new Steadier(this.preset, this.hold), box: d.box, cls: d.cls, hits: 1};
       const r = t.st.update(d.name, d.conf, d.box);
       this.tracks.push(t);
-      out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+      if (this.confirm <= 1) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
     });
     return out.sort((a, b) => a.id - b.id);
   }
@@ -1805,8 +1829,8 @@ async function inferLoopW(){
     const mode = document.getElementById('mode').value;
     if (mode === 'multi') {
       if (!boxHead && !detHead) { await tf.nextFrame(); continue; }
-      if (!multiSteadier) multiSteadier = new MultiSteadier(STEADY_DEFAULT, STEADY_HOLD);
-      const dets = multiSteadier.update(await predictMulti(video));
+      if (!multiSteadier) multiSteadier = new MultiSteadier(STEADY_DEFAULT, STEADY_HOLD + 4, 2);
+      const dets = multiSteadier.update(await predictMulti(video), GRID_MULTI_CONF);
       lastMulti = dets;
       document.getElementById('pred').innerHTML = dets.length
         ? dets.map((d, k) => `<div class="prow"><div class="pname" style="width:auto">
@@ -1883,8 +1907,9 @@ async function predictMulti(el){
     const fm = tf.tidy(() => { const x = bbInput(el);
       return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode()); });
     const rt = gridRows(fm), rows = await rt.array(); rt.dispose(); fm.dispose();
-    const mir = rows[1].map(r => { const q = r.slice(); q[0] = 1 - q[0]; return q; });
-    return gridDecode(rows[0].concat(mir), GRID_MULTI_CONF);
+    const mir = gridPeaks(rows[1]).map(r => { const q = r.slice(); q[0] = 1 - q[0]; return q; });
+    // weak detections (>= half the threshold) may only keep an already-tracked object alive
+    return gridDecode(gridPeaks(rows[0]).concat(mir), GRID_MULTI_CONF*0.5);
   }
   const cv = makeSrc(el);                                   // 224x224, same as training
   if (protos && !protoT) protoT = tf.tidy(() => {

@@ -184,9 +184,26 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
     (steadier than picking one cell), and the mirrored frame's detections are fused in
     when available (out["output0_flip"])."""
     s = float(model.size)
-    preds = [out["output0"][0].T]
+
+    def peaks(o):
+        # keep a cell only where its class score is the local maximum of its 3x3
+        # neighbourhood (one response per object; weak echoes next to it are dropped)
+        n = o.shape[1]
+        g = int(round(math.sqrt(n)))
+        if g * g != n:
+            return o.T
+        sc = o[4:].reshape(-1, g, g)
+        pad = np.pad(sc, ((0, 0), (1, 1), (1, 1)), constant_values=-1.0)
+        nb = np.max([pad[:, 1 + dy:1 + dy + g, 1 + dx:1 + dx + g]
+                     for dy in (-1, 0, 1) for dx in (-1, 0, 1)], axis=0)
+        sc = np.where(sc >= nb, sc, 0.0)
+        o = o.copy()
+        o[4:] = sc.reshape(-1, n)
+        return o.T
+
+    preds = [peaks(out["output0"][0])]
     if "output0_flip" in out:
-        pf = out["output0_flip"][0].T.copy()
+        pf = peaks(out["output0_flip"][0]).copy()
         pf[:, 0] = s - pf[:, 0]
         preds.append(pf)
     pred = np.concatenate(preds, 0)                     # [N, 4+nc]
@@ -204,7 +221,8 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
         for g in groups:
             o = iou(g["xyxy"], box)
             inside = g["xyxy"][0] <= cx <= g["xyxy"][2] and g["xyxy"][1] <= cy <= g["xyxy"][3]
-            if (g["cls"] == c and (o > iou_thr or inside)) or o > 0.6:
+            # center inside a stronger box = same object (any class); else same-class overlap
+            if inside or (g["cls"] == c and o > iou_thr) or o > 0.5:
                 g["m"].append((float(conf[k]), [cx, cy, w, h]))
                 break
         else:
@@ -298,10 +316,16 @@ class MultiSteadier(object):
     and every track has its own Stabilizer - same smoothing, hold and class
     hysteresis as single-object mode. Tracks keep an id (#1, #2 ...) while visible."""
 
-    def __init__(self, preset="high", hold=6):
-        self.preset, self.hold = preset, hold
-        self.tracks = []            # dicts: id, st (Stabilizer), box (last raw xywh)
-        self.next_id = 1
+    def __init__(self, preset="high", hold=6, confirm=2):
+        self.preset, self.hold, self.confirm = preset, hold, confirm
+        self.tracks = []            # dicts: id, st (Stabilizer), box (last raw xywh), hits
+
+    def _new_id(self):
+        used = set(t["id"] for t in self.tracks)
+        i = 1
+        while i in used:
+            i += 1
+        return i                    # lowest free number: objects stay 1, 2, 3 ...
 
     @staticmethod
     def _cost(a, b):
@@ -311,7 +335,9 @@ class MultiSteadier(object):
         d = math.hypot(a[0] - b[0], a[1] - b[1]) / max(1e-6, (a[2] + a[3] + b[2] + b[3]) / 4)
         return o, d
 
-    def update(self, dets, now=None):
+    def update(self, dets, now=None, start_conf=0.0):
+        """dets may include weak detections: they can only CONTINUE an existing track;
+        starting a new object needs conf >= start_conf (hysteresis -> stable ids)."""
         now = time.time() if now is None else now
         pairs = []
         for ti, t in enumerate(self.tracks):
@@ -327,12 +353,15 @@ class MultiSteadier(object):
             used_t.add(ti); used_d.add(di)
             t, d = self.tracks[ti], dets[di]
             t["box"] = d["box"]
+            t["hits"] += 1
             name, conf, box = t["st"].update(d["name"], d["conf"], d["box"], now)
-            if box is not None:
+            if box is not None and t["hits"] >= self.confirm:
                 out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
         alive = []
         for ti, t in enumerate(self.tracks):
             if ti not in used_t:
+                if t["hits"] < self.confirm:
+                    continue                                              # never confirmed: drop
                 name, conf, box = t["st"].update("none", 0.0, None, now)   # hold for a few frames
                 if box is None:
                     continue
@@ -340,14 +369,14 @@ class MultiSteadier(object):
             alive.append(t)
         self.tracks = alive
         for di, d in enumerate(dets):
-            if di in used_d:
+            if di in used_d or d["conf"] < start_conf:
                 continue
             st = Stabilizer(self.preset, self.hold)
             name, conf, box = st.update(d["name"], d["conf"], d["box"], now)
-            t = {"id": self.next_id, "st": st, "box": d["box"]}
-            self.next_id += 1
+            t = {"id": self._new_id(), "st": st, "box": d["box"], "hits": 1}
             self.tracks.append(t)
-            out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+            if self.confirm <= 1:
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
         out.sort(key=lambda r: r["id"])
         return out
 
@@ -465,6 +494,8 @@ def main():
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
     ap.add_argument("--headless", action="store_true", help="no window; print results only")
+    ap.add_argument("--record", default=None,
+                    help="also save the RAW camera frames (no boxes drawn) to this video, e.g. clip.mp4")
     ap.add_argument("--cpu", action="store_true", help="force CPU even if a GPU provider exists")
     ap.add_argument("--trt", action="store_true", help="Jetson: use the onnxruntime TensorRT provider if installed")
     ap.add_argument("--steady", choices=["auto", "high", "normal", "low", "off"], default="auto",
@@ -495,7 +526,7 @@ def main():
     steady = args.steady if args.steady != "auto" else (cfg.get("steady") or {}).get("preset", "high")
     hold = args.hold if args.hold is not None else int((cfg.get("steady") or {}).get("hold", 6))
     stab = Stabilizer(steady, hold=max(0, hold))
-    mstab = MultiSteadier(steady, hold=max(0, hold))
+    mstab = MultiSteadier(steady, hold=max(0, hold) + 4)
     print("TESR model | task: %s | mode: %s | runtime: %s" % (model.task, mode, model.provider))
     if mode in ("single", "precise", "multi"):
         print("steady: %s | hold %d frames | mirror-average %s" % (steady, stab.hold, "on" if tta else "off"))
@@ -507,10 +538,11 @@ def main():
     def run_frame(bgr):
         out = model.run(bgr, tta=tta)
         if mode == "multi":
-            dets = decode_multi(model, out, multi_conf, args.iou)
+            # weak detections (>= half the threshold) may only keep an existing object alive
+            dets = decode_multi(model, out, multi_conf * 0.5, args.iou)
             H, W = bgr.shape[:2]
             res = []
-            for d in mstab.update(dets):
+            for d in mstab.update(dets, start_conf=multi_conf):
                 px, py = draw_box(bgr, d["name"], d["conf"], d["box"], d["id"])
                 res.append((d["id"], d["name"], round(d["conf"], 3), (px, py)))
             put(bgr, "%d object(s)" % len(res), H - 14, GOLD, 0.6)
@@ -547,6 +579,7 @@ def main():
             bgr = cv2.imread(src)
             if bgr is None:
                 raise SystemExit("Could not read image: " + src)
+            mstab.confirm = 1                 # a single photo: show detections straight away
             print(run_frame(bgr))
             if not args.headless:
                 cv2.imshow("TESR model (press any key)", bgr)
@@ -563,6 +596,7 @@ def main():
         release = cam.release
 
     fps, t_last, n = 0.0, time.time(), 0
+    writer = None
     try:
         while True:
             ok, bgr = reader()
@@ -570,6 +604,12 @@ def main():
                 break
             if bgr.ndim == 3 and bgr.shape[2] == 4:
                 bgr = cv2.cvtColor(bgr, cv2.COLOR_BGRA2BGR)
+            if args.record:
+                if writer is None:
+                    writer = cv2.VideoWriter(args.record, cv2.VideoWriter_fourcc(*"mp4v"), 30,
+                                             (bgr.shape[1], bgr.shape[0]))
+                    print("recording raw frames to " + args.record)
+                writer.write(bgr)                   # before anything is drawn
             res = run_frame(bgr)
             n += 1
             now = time.time()
@@ -584,6 +624,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if writer is not None:
+            writer.release()
         release()                          # always free the camera
         if not args.headless:
             cv2.destroyAllWindows()
