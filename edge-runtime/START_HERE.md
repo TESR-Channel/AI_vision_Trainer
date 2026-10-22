@@ -56,8 +56,10 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 
 **แก้ / เพิ่มคลาส** — หน้าเว็บ → **Load Project** → เลือก zip นี้ (รูป + label อยู่ใน `project/`) → เทรน → ดาวน์โหลดใหม่
 
-**ต้องการแม่นขึ้นอีก / หลายวัตถุแบบจริงจัง** — หน้าเว็บ → **Download Dataset (YOLO)** → เทรน YOLO
-(ขั้นตอนเหมือนกัน: `train.py` → `run.py` → `export.py --target pi|jetson`)
+**ต้องการแม่นขึ้นอีก / โมเดล YOLO ตัวใหญ่** — หน้าเว็บ → **Download Dataset (YOLO)** → เทรน YOLO
+นั่นคือ **อีกเส้นทางหนึ่ง** คนละชุดคำสั่งกับที่นี่: `train.py` → `run.py` → `export.py`
+ของโฟลเดอร์ `yolo-trainer/` ซึ่ง **แปลง** `best.pt` ไม่ใช่ **แพ็ก** `model.onnx`
+และบนอุปกรณ์ต้องลง `ultralytics` เพิ่ม → อ่าน `yolo-trainer/README.md` ก่อน
 
 ## ปรับเร็ว ๆ
 
@@ -81,4 +83,4 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 2. **Computer:** `python export.py --target pi|jetson|jetson_nano` → `exports/tesr-model-<target>.zip`
 3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py` (Jetson speed-up: `bash build_trt.sh`)
 
-Need more accuracy or real multi-object? Web page → **Download Dataset (YOLO)** → same steps with `train.py` / `run.py` / `export.py`.
+Need more accuracy or a bigger YOLO model? Web page → **Download Dataset (YOLO)**. That is a **different route** with its own `train.py` / `run.py` / `export.py` in `yolo-trainer/` — that `export.py` **converts** `best.pt`, this one **packages** `model.onnx`, and the device needs `ultralytics` too. Read `yolo-trainer/README.md` first.
