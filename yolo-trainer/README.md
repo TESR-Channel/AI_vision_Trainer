@@ -1,13 +1,33 @@
-# TESR YOLO Trainer — from web dataset to a deployed edge model
+# TESR YOLO Trainer — the advanced route: train YOLO yourself
 
-**One path. No detours.** Collect and label on the [web trainer](https://tesr-channel.github.io/AI_vision_Trainer/),
-train on your computer, deploy to the edge device.
+This folder is the **YOLO route**, and it is optional. Collect and label on the
+[web trainer](https://tesr-channel.github.io/AI_vision_Trainer/), press
+**Download Dataset (YOLO)**, then train on your own computer.
 
 ```text
-🌐 Web page              💻 Your computer                  📦 Edge device
-collect + label   →   train.py → run.py → export.py   →   copy model → run
-(Download Dataset)     train      test      package        Raspberry Pi / Jetson
+🌐 Web page                   💻 Your computer                  📦 Edge device
+collect + label        →   train.py → run.py → export.py   →   copy model → run
+(Download Dataset YOLO)      train      test     convert        Raspberry Pi / Jetson
 ```
+
+## Which route am I on?
+
+The web trainer has two exits. They are not the same thing.
+
+| | Browser route (`edge-runtime/`) | YOLO route (this folder) |
+|---|---|---|
+| Button on the web page | **Download Model (.zip)** | **Download Dataset (YOLO)** |
+| Where training happens | in the browser | `train.py` on your computer |
+| Model file | `model.onnx` | `best.pt` |
+| The device needs | `onnxruntime` only | `ultralytics` + `torch` (or NCNN) |
+| Runner | `predict.py` | `run.py --weights …` |
+| TESR Academy day 1–2 | **this is the route taught** | optional, for afterwards |
+
+> ⚠️ **Both routes contain a file called `export.py`, and both accept
+> `--target pi`.** They do completely different jobs: the browser one
+> **packages** `model.onnx` into a zip for the board, this one **converts**
+> `best.pt` into NCNN. Run the `export.py` that sits in the folder you are
+> working in, and never mix the two sets of output files.
 
 *(ภาษาไทยด้านล่าง / Thai version below)*
 
@@ -46,8 +66,9 @@ out-of-memory. If cu126 fails to install, try `cu124`.
 
 | Device | On your computer | On the device | Fastest option |
 |---|---|---|---|
-| Raspberry Pi | `python export.py --target pi` | copy `best_ncnn_model/` + run | re-export with `--imgsz 320` |
-| Jetson | nothing — just copy `best.pt` | runs on the GPU as-is | TensorRT (below) |
+| Raspberry Pi 4 / 5 | `python export.py --target pi` | copy `best_ncnn_model/` + run | re-export with `--imgsz 320` |
+| Jetson Orin Nano / NX / AGX | nothing — just copy `best.pt` | runs on the GPU as-is | TensorRT (below) |
+| Jetson Nano (original) | — | **this route does not run there** | use the browser route |
 
 Every export also writes **`sample_predict.py` + `SAMPLE_README.md`** — a
 `predict(frame)` function returning plain dicts, ready for your own code and
@@ -115,7 +136,7 @@ python3 export.py --target jetson      # on the Jetson -> best.engine (FP16)
 python3 run.py --weights best.engine   # compare the FPS counter with best.pt
 ```
 
-<details><summary><b>JetPack 6 install · error fixes · Docker</b></summary>
+<details><summary><b>JetPack 6 install · error fixes</b></summary>
 
 **JetPack 6 (R36.x — Ubuntu 22.04, Python 3.10)** — commands from the
 [Ultralytics Jetson guide](https://docs.ultralytics.com/guides/nvidia-jetson):
@@ -145,12 +166,37 @@ sudo apt-get update && sudo apt-get -y install cudss
 - export fails `No module named 'onnx'` (JP7) — AutoUpdate is blocked by
   PEP 668; run the `pip install "onnx<2" ...` line above
 - export fails `No module named 'tensorrt'` — `sudo apt install nvidia-jetpack`
-
-**Docker alternative** (everything preinstalled):
-`t=ultralytics/ultralytics:latest-jetson-jetpack6` then
-`sudo docker run -it --ipc=host --runtime=nvidia -v ~/yolo-trainer:/ws --device /dev/video0 $t`
-and inside: `cd /ws && python3 run.py --weights best.pt --headless`
 </details>
+
+### NVIDIA Jetson Nano (the original board) — use the browser route instead
+
+The original Jetson Nano is much more limited than a Jetson Orin Nano, and the
+limit here is software, not speed: its last JetPack is **4.6.x (L4T R32)**,
+which is Ubuntu 18.04 with **Python 3.6**. Current `ultralytics` needs Python
+3.8 or newer, so `pip install ultralytics` fails before it starts and none of
+the blocks above apply.
+
+Two honest options:
+
+1. **Use the browser route** — recommended, and what the course teaches. It
+   needs only `onnxruntime` and has a Jetson Nano target of its own:
+
+   ```bash
+   python export.py --target jetson_nano      # the export.py in edge-runtime/, not this one
+   ```
+
+2. **Stay on YOLO**, export a portable format on your PC, and write your own
+   loop on the board:
+
+   ```bash
+   python export.py --target onnx             # or --target pi for NCNN
+   ```
+
+   `run.py` will not help you here — it imports `ultralytics`, which the board
+   cannot install. You would be writing an `onnxruntime` or NCNN loop yourself.
+
+Option 2 has not been tested on a Jetson Nano. Measure it on the board before
+promising anyone a frame rate.
 
 <details><summary><b>Troubleshooting (all devices)</b></summary>
 
@@ -165,10 +211,29 @@ and inside: `cd /ws && python3 run.py --weights best.pt --headless`
 
 ---
 
-# TESR YOLO Trainer — จาก dataset บนเว็บ สู่โมเดลที่ deploy บน Edge
+# TESR YOLO Trainer — เส้นทางขั้นสูง: เทรน YOLO ด้วยตัวเอง
 
-**ทางเดียว ไม่มีทางแยก:** เก็บรูป + label บน[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)
-→ เทรนบนคอมพิวเตอร์ → ก๊อปโมเดลไปอุปกรณ์ Edge
+โฟลเดอร์นี้คือ **เส้นทาง YOLO** ซึ่งเป็น "ทางเลือก" ไม่ใช่ทางหลักของคอร์ส
+เก็บรูป + label บน[หน้าเว็บ](https://tesr-channel.github.io/AI_vision_Trainer/)
+→ กด **Download Dataset (YOLO)** → เทรนบนคอมพิวเตอร์ของคุณเอง
+
+## ฉันอยู่เส้นทางไหน
+
+หน้าเว็บมีทางออก 2 ทาง และไม่ใช่เรื่องเดียวกัน
+
+| | เส้นทาง Browser (`edge-runtime/`) | เส้นทาง YOLO (โฟลเดอร์นี้) |
+|---|---|---|
+| ปุ่มบนหน้าเว็บ | **Download Model (.zip)** | **Download Dataset (YOLO)** |
+| เทรนที่ไหน | ในเบราว์เซอร์ | `train.py` บนคอมของคุณ |
+| ไฟล์โมเดล | `model.onnx` | `best.pt` |
+| บนอุปกรณ์ต้องมี | `onnxruntime` เท่านั้น | `ultralytics` + `torch` (หรือ NCNN) |
+| ตัวรัน | `predict.py` | `run.py --weights …` |
+| TESR Academy วัน 1–2 | **สอนเส้นทางนี้** | ทางเลือก ไว้ต่อยอดหลังคอร์ส |
+
+> ⚠️ **ทั้งสองเส้นทางมีไฟล์ชื่อ `export.py` และรับ `--target pi` เหมือนกัน**
+> แต่ทำงานคนละเรื่อง: ตัวของเส้นทาง browser **แพ็ก** `model.onnx` ลง zip ให้บอร์ด
+> ส่วนตัวนี้ **แปลง** `best.pt` เป็น NCNN
+> ให้รัน `export.py` ตัวที่อยู่ในโฟลเดอร์ที่กำลังทำงานอยู่ และอย่าสลับไฟล์ผลลัพธ์กัน
 
 ## 1 · เทรนบนคอมพิวเตอร์
 
@@ -201,8 +266,9 @@ python -c "import torch; print(torch.cuda.is_available())"    # ต้องไ�
 
 | อุปกรณ์ | บนคอมพิวเตอร์ | บนอุปกรณ์ | เร็วสุด |
 |---|---|---|---|
-| Raspberry Pi | `python export.py --target pi` | ก๊อป `best_ncnn_model/` + รัน | re-export `--imgsz 320` |
-| Jetson | ไม่ต้อง export — ก๊อป `best.pt` | รันบน GPU ได้เลย | TensorRT (ด้านล่าง) |
+| Raspberry Pi 4 / 5 | `python export.py --target pi` | ก๊อป `best_ncnn_model/` + รัน | re-export `--imgsz 320` |
+| Jetson Orin Nano / NX / AGX | ไม่ต้อง export — ก๊อป `best.pt` | รันบน GPU ได้เลย | TensorRT (ด้านล่าง) |
+| Jetson Nano (รุ่นเดิม) | — | **เส้นทางนี้รันไม่ได้** | ใช้เส้นทาง browser |
 
 ### Raspberry Pi — ทดสอบแล้วใช้ได้จริง
 
@@ -259,9 +325,37 @@ python3 export.py --target jetson      # บนตัว Jetson -> best.engine (
 python3 run.py --weights best.engine   # เทียบ FPS กับ best.pt ได้เลย
 ```
 
-<details><summary><b>JetPack 6 · แก้ error · Docker</b></summary>
+### Jetson Nano (รุ่นเดิม) — ให้ใช้เส้นทาง browser แทน
 
-ดู block **JetPack 6 install · error fixes · Docker** ในส่วนภาษาอังกฤษด้านบน — สรุป:
+Jetson Nano รุ่นเดิมมีข้อจำกัดมากกว่า Jetson Orin Nano และข้อจำกัดตรงนี้เป็นเรื่อง
+**ซอฟต์แวร์ ไม่ใช่ความเร็ว**: JetPack ตัวสุดท้ายของมันคือ **4.6.x (L4T R32)**
+ซึ่งเป็น Ubuntu 18.04 + **Python 3.6** แต่ `ultralytics` ปัจจุบันต้องใช้ Python 3.8
+ขึ้นไป ฉะนั้น `pip install ultralytics` จะพังตั้งแต่ยังไม่เริ่ม และ block ข้างบน
+ทั้งหมดใช้กับบอร์ดนี้ไม่ได้
+
+มี 2 ทางตามจริง
+
+1. **ใช้เส้นทาง browser** — แนะนำ และเป็นทางที่คอร์สสอน เพราะต้องมีแค่
+   `onnxruntime` และมี target ของ Jetson Nano อยู่แล้ว
+
+   ```bash
+   python export.py --target jetson_nano      # ตัว export.py ใน edge-runtime/ ไม่ใช่ตัวนี้
+   ```
+
+2. **อยู่กับ YOLO ต่อ** โดย export เป็นรูปแบบพอร์ตได้บนคอม แล้วเขียน loop เองบนบอร์ด
+
+   ```bash
+   python export.py --target onnx             # หรือ --target pi เพื่อได้ NCNN
+   ```
+
+   `run.py` ช่วยไม่ได้ เพราะมันเรียก `ultralytics` ที่บอร์ดลงไม่ได้ — ต้องเขียน
+   loop ด้วย `onnxruntime` หรือ NCNN เอง
+
+ทางที่ 2 ยังไม่ได้ทดสอบบน Jetson Nano จริง ต้องวัดบนบอร์ดเองก่อนไปบอกใครว่าได้กี่ FPS
+
+<details><summary><b>JetPack 6 · แก้ error</b></summary>
+
+ดู block **JetPack 6 install · error fixes** ในส่วนภาษาอังกฤษด้านบน — สรุป:
 JP6 ใช้ torch/torchvision wheel ของ NVIDIA + cuDSS · wheel ขึ้น "not a supported
 wheel" = รัน block ผิดรุ่น JetPack · export ขึ้น `No module named 'onnx'` (JP7) =
 รันบรรทัด `pip install "onnx<2" ...` ข้างบน · ขึ้น `No module named 'tensorrt'` =
