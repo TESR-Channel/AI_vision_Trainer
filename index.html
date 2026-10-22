@@ -1997,13 +1997,13 @@ const TARGETS = {
   jetson_nano: {label: 'Jetson Nano (JetPack 4, experimental)', csi: true},
 };
 function syncTargetUI(load){
-  // device + camera are chosen later on the computer:  python export.py --target pi|jetson [--camera csi]
+  // the device is chosen later on the computer:  python export.py --target pi|jetson|jetson_nano
   document.getElementById('tgt').value = 'pc'; document.getElementById('tgtCam').value = 'usb';
   if (load){ try{ const v = JSON.parse(localStorage.getItem('tesr_target') || '{}');
     }catch(e){} }
   document.getElementById('tgtHint').innerHTML = t(
-    'Raspberry Pi / Jetson: export on your computer with <code>python export.py --target pi</code> or <code>--target jetson</code> (add <code>--camera csi</code> for a ribbon camera).',
-    'Raspberry Pi / Jetson: export บนคอมด้วย <code>python export.py --target pi</code> หรือ <code>--target jetson</code> (กล้องสายแพเติม <code>--camera csi</code>)');
+    'Raspberry Pi / Jetson: export on your computer with <code>python export.py --target pi</code> or <code>--target jetson</code>. The camera is chosen on the device, when you run predict.py there.',
+    'Raspberry Pi / Jetson: export บนคอมด้วย <code>python export.py --target pi</code> หรือ <code>--target jetson</code> ส่วนกล้องไปเลือกตอนรัน predict.py บนบอร์ด');
   saveTargetUI();
 }
 function saveTargetUI(){
