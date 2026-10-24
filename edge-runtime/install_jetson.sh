@@ -11,18 +11,21 @@ python3 -c "import cv2" 2>/dev/null || sudo apt install -y python3-opencv
 python3 -m venv --system-site-packages venv
 . venv/bin/activate
 pip install --upgrade pip
-# CPU onnxruntime works everywhere. For the GPU, either:
-#   - build a TensorRT engine:  bash build_trt.sh   (course chapter 8), or
-#   - install onnxruntime-gpu from the Jetson AI Lab pip index that matches
-#     YOUR JetPack/CUDA version, then run:  python predict.py --trt
+# CPU onnxruntime works everywhere. For the GPU (course chapter 6):
+#   bash build_trt.sh  then  python predict.py --trt
+#   --trt runs model_fp16.engine through JetPack's TensorRT Python module
+#   (python3-libnvinfer, seen through --system-site-packages); if it cannot,
+#   predict.py says why and runs on onnxruntime instead.
 pip install onnxruntime || {
   echo "pip could not install onnxruntime for this Python ($(python3 -V))."
   echo "Install the Jetson build of onnxruntime for your JetPack, then re-run."
   exit 1; }
 python -c "import onnxruntime as o, cv2; print('onnxruntime', o.__version__, o.get_available_providers()); import re; print('OpenCV GStreamer:', bool(re.search(r'GStreamer:\\s+YES', cv2.getBuildInformation())))"
+python -c "import tensorrt as t; print('TensorRT (for --trt):', t.__version__)" 2>/dev/null \
+  || echo "TensorRT Python module not found - only --trt needs it:  sudo apt install -y python3-libnvinfer"
 echo
 echo "Done! Run:"
 echo "  source venv/bin/activate"
 echo "  python predict.py --camera csi    # ribbon camera (nvarguscamerasrc)"
 echo "  python predict.py --camera usb    # USB webcam"
-echo "Optional GPU speed-up:  bash build_trt.sh"
+echo "Optional GPU speed-up:  bash build_trt.sh   then   python predict.py --trt"

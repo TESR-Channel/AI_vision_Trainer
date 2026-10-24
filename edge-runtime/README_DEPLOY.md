@@ -23,7 +23,9 @@ python export.py --target jetson_nano         # Jetson Nano (JetPack 4, experime
 Result: `exports/tesr-model-<target>.zip` - copy it to the board (USB stick, or
 `scp exports/tesr-model-pi5.zip user@device-ip:~/`) and unzip it there.
 The model file is the same on every device; export only picks the right
-installer and camera.
+installer. Optional: `--camera csi` (default `usb`) writes the default camera
+into `config.json`; on the device `python predict.py --camera usb|csi` always
+overrides it.
 
 ## 2 - Install once
 
@@ -67,10 +69,15 @@ web trainer with `yolo-trainer/train.py`.
 FPS depends on the device, camera and mode - `predict.py` prints the
 **measured** FPS; always measure on the real device.
 
-Jetson GPU (course chapter 8 - ONNX -> TensorRT):
+Jetson GPU (course chapter 6 - ONNX -> TensorRT), on the Jetson itself:
 ```bash
-bash build_trt.sh     # builds model_fp32.engine + model_fp16.engine and prints Throughput for each
+bash build_trt.sh          # builds model_fp32.engine + model_fp16.engine and prints Throughput for each
+python predict.py --trt    # runs model_fp16.engine (model_fp32.engine if there is no FP16 one)
 ```
+`--trt` needs JetPack's TensorRT Python module (`sudo apt install -y python3-libnvinfer`).
+The first line then says `runtime: TensorRT engine model_fp16.engine`. If there is
+no engine, or it cannot be loaded (built on another board / TensorRT version),
+`predict.py` prints why and carries on with onnxruntime - rebuild with `bash build_trt.sh`.
 
 ## Troubleshooting
 
@@ -81,6 +88,7 @@ bash build_trt.sh     # builds model_fp32.engine + model_fp16.engine and prints 
 - **The same object gets two boxes** -> `--iou 0.3`
 - **CSI on Jetson fails** -> `gst-launch-1.0 nvarguscamerasrc ! fakesink` must work first; use the system OpenCV (has GStreamer), not pip's
 - **CSI on Pi fails** -> `rpicam-hello` must work first; `sudo apt install -y python3-picamera2`
+- **`onnxruntime is not installed`** -> the venv is not active: `source venv/bin/activate` (Windows: `venv\Scripts\activate`), or run the installer again
 - **USB camera will not open** -> `v4l2-ctl --list-devices`, try `--source 1`; close other apps using it
 
 ## Use the same model in other tools

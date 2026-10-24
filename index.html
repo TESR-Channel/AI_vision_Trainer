@@ -361,8 +361,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <button class="gold" onclick="sendToRoiStudio()" id="btnRoi" disabled>&#127919; Send to ROI Studio</button>
         </div>
         <div class="msg" id="eMsg"></div>
-        <div class="hint" id="onnxHint"><b>ONNX only</b> = <code>model.onnx</code> for course chapter 8
-          (ONNX &rarr; TensorRT: <code>trtexec --onnx=model.onnx --fp16</code>). Input
+        <div class="hint" id="onnxHint"><b>ONNX only</b> = <code>model.onnx</code>
+          (ONNX &rarr; TensorRT, course chapter 6: <code>trtexec --onnx=model.onnx --fp16</code>). Input
           <code>images [1,3,224,224]</code> RGB 0..1; detection adds a YOLO-style <code>output0</code>.
           <b>Send to ROI Studio</b> puts the model straight into ROI Studio's <i>My models</i> &mdash;
           draw an ROI, choose YOLO detect/classify, pick the model.</div>

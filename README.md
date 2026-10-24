@@ -37,7 +37,7 @@ files, auto-augment small datasets, train in seconds, test live, and export.
      `onnxruntime` + OpenCV, no TensorFlow) + the matching installer
      (`install_pi.sh`, `install_jetson.sh` + `build_trt.sh`, …) + `README_DEPLOY.md`.
    - **ONNX only** — one standard `model.onnx` (opset 13, input `images [1,3,224,224]`
-     RGB 0..1). Ready for `trtexec --onnx=model.onnx --fp16` (course chapter 8).
+     RGB 0..1). Ready for `trtexec --onnx=model.onnx --fp16` (course chapter 6).
    - **Send to ROI Studio** — the model appears directly in
      [TESR ROI Studio](https://tesr-channel.github.io/AI_ROI_Designer/) → *My models*.
    - **Download Dataset (YOLO)** — your photos + labels, ready for real YOLO training below.

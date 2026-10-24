@@ -9,6 +9,7 @@ One script for PC, Raspberry Pi 5 and NVIDIA Jetson. Needs only:
     python predict.py --camera csi            # ribbon camera (Pi: Picamera2, Jetson: GStreamer)
     python predict.py --mode single           # detection: only the main object
     python predict.py --headless              # no window (SSH) - prints results only
+    python predict.py --trt                   # Jetson: the engine build_trt.sh made
 
 The model knows its own task (config.json):
   classification -> one class name for the whole frame
@@ -56,29 +57,138 @@ def is_raspberry_pi():
         return False
 
 
+# --------------------------------------------------- TensorRT (Jetson) ---
+ENGINES = ["model_fp16.engine", "model_fp32.engine"]     # written by build_trt.sh
+
+
+def _cudart():
+    """The CUDA runtime that ships with JetPack, loaded with ctypes (no pycuda needed)."""
+    import ctypes
+    import ctypes.util
+    import glob
+    names = [ctypes.util.find_library("cudart")] + sorted(
+        glob.glob("/usr/local/cuda*/lib64/libcudart.so*") + glob.glob("/usr/lib/aarch64-linux-gnu/libcudart.so*"))
+    for n in names:
+        if not n:
+            continue
+        try:
+            lib = ctypes.CDLL(n)
+        except OSError:
+            continue
+        lib.cudaMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+        lib.cudaMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+        return lib
+    raise RuntimeError("CUDA runtime (libcudart) not found")
+
+
+class TrtSession(object):
+    """Runs a .engine from build_trt.sh; same run(None, feed) call as onnxruntime."""
+
+    def __init__(self, path):
+        import ctypes
+        import tensorrt as trt
+        self.ct, self.cuda = ctypes, _cudart()
+        with open(path, "rb") as f:
+            engine = trt.Runtime(trt.Logger(trt.Logger.WARNING)).deserialize_cuda_engine(f.read())
+        if engine is None:
+            raise RuntimeError("TensorRT could not load it (built with another TensorRT version "
+                               "or on another board?) - run  bash build_trt.sh  again on this Jetson")
+        self.engine, self.ctx = engine, engine.create_execution_context()
+        new_api = hasattr(engine, "num_io_tensors")             # TensorRT 8.5+ / 10
+        n = engine.num_io_tensors if new_api else engine.num_bindings
+        self.io = []                                             # (name, is_input, host array, device ptr)
+        for i in range(n):
+            if new_api:
+                name = engine.get_tensor_name(i)
+                is_in = engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+                shape, dt = engine.get_tensor_shape(name), engine.get_tensor_dtype(name)
+            else:                                                # TensorRT 8.2 (Jetson Nano, JetPack 4)
+                name, is_in = engine.get_binding_name(i), engine.binding_is_input(i)
+                shape, dt = engine.get_binding_shape(i), engine.get_binding_dtype(i)
+            host = np.zeros(tuple(shape), dtype=trt.nptype(dt))
+            ptr = ctypes.c_void_p()
+            if self.cuda.cudaMalloc(ctypes.byref(ptr), host.nbytes) != 0:
+                raise RuntimeError("cudaMalloc failed")
+            if new_api:
+                self.ctx.set_tensor_address(name, ptr.value)
+            self.io.append((name, is_in, host, ptr))
+        self.new_api = new_api
+        self.output_names = [io[0] for io in self.io if not io[1]]
+
+    def run(self, _names, feed):
+        cp = self.cuda.cudaMemcpy
+        for name, is_in, host, ptr in self.io:
+            if is_in:
+                host[...] = feed[name]
+                cp(ptr, host.ctypes.data, host.nbytes, 1)        # host -> GPU
+        if self.new_api:
+            self.ctx.execute_async_v3(0)
+            self.cuda.cudaDeviceSynchronize()
+        else:
+            self.ctx.execute_v2([io[3].value for io in self.io])
+        out = []
+        for name, is_in, host, ptr in self.io:
+            if not is_in:
+                cp(host.ctypes.data, ptr, host.nbytes, 2)        # GPU -> host
+                out.append(host.copy())
+        return out
+
+
+def open_engine():
+    """--trt: the engine build_trt.sh made, or None after printing why not."""
+    found = [e for e in ENGINES if os.path.exists(os.path.join(HERE, e))]
+    if not found:
+        print("--trt: no %s here - build it on this Jetson first:  bash build_trt.sh" % " / ".join(ENGINES))
+        return None
+    try:
+        import tensorrt  # noqa: F401
+    except ImportError:
+        print("--trt: found %s, but Python cannot import tensorrt - on the Jetson:\n"
+              "       sudo apt install -y python3-libnvinfer   (the venv must use --system-site-packages,\n"
+              "       install_jetson.sh does this)" % found[0])
+        return None
+    try:
+        sess = TrtSession(os.path.join(HERE, found[0]))
+    except Exception as e:
+        print("--trt: could not use %s: %s" % (found[0], e))
+        return None
+    sess.provider = "TensorRT engine %s" % found[0]
+    return sess
+
+
 # ----------------------------------------------------------------- model ---
 class Model(object):
     def __init__(self, cfg, use_gpu=True, trt=False):
-        try:
-            import onnxruntime as ort
-        except ImportError:
-            raise SystemExit("onnxruntime is not installed. Run the installer in this folder "
-                             "(see README_DEPLOY.md), or:  pip install onnxruntime")
         path = os.path.join(HERE, cfg.get("model", "model.onnx"))
-        if not os.path.exists(path):
-            raise SystemExit("Model file not found: " + path)
-        avail = ort.get_available_providers()
-        wanted = []
-        if trt and "TensorrtExecutionProvider" in avail:
-            wanted.append(("TensorrtExecutionProvider", {
-                "trt_fp16_enable": True, "trt_engine_cache_enable": True,
-                "trt_engine_cache_path": os.path.join(HERE, "trt_cache")}))
-        if use_gpu and "CUDAExecutionProvider" in avail:
-            wanted.append("CUDAExecutionProvider")
-        wanted.append("CPUExecutionProvider")
-        self.sess = ort.InferenceSession(path, providers=wanted)
-        self.provider = self.sess.get_providers()[0]
-        self.outputs = [o.name for o in self.sess.get_outputs()]
+        self.sess = open_engine() if trt else None
+        if self.sess is not None:
+            self.provider, self.outputs = self.sess.provider, self.sess.output_names
+        else:
+            try:
+                import onnxruntime as ort
+            except ImportError:
+                raise SystemExit("onnxruntime is not installed. Run the installer in this folder "
+                                 "(see README_DEPLOY.md), or:  pip install onnxruntime")
+            if not os.path.exists(path):
+                raise SystemExit("Model file not found: " + path)
+            avail = ort.get_available_providers()
+            wanted = []
+            if trt and "TensorrtExecutionProvider" in avail:
+                # onnxruntime-gpu with TensorRT builds its own engine (trt_cache/, first start is slow)
+                wanted.append(("TensorrtExecutionProvider", {
+                    "trt_fp16_enable": True, "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": os.path.join(HERE, "trt_cache")}))
+            if use_gpu and "CUDAExecutionProvider" in avail:
+                wanted.append("CUDAExecutionProvider")
+            wanted.append("CPUExecutionProvider")
+            if trt:
+                w = wanted[0] if isinstance(wanted[0], str) else wanted[0][0]
+                print("--trt: continuing with onnxruntime " + w
+                      + (" (it builds its own engine in trt_cache/ - first start takes minutes)"
+                         if w == "TensorrtExecutionProvider" else " - no TensorRT"))
+            self.sess = ort.InferenceSession(path, providers=wanted)
+            self.provider = self.sess.get_providers()[0]
+            self.outputs = [o.name for o in self.sess.get_outputs()]
         self.size = int(cfg.get("input", 224))
         self.names = cfg["classes"]
         self.task = cfg.get("task", "classification")
@@ -500,7 +610,9 @@ def main():
     ap.add_argument("--record", default=None,
                     help="also save the RAW camera frames (no boxes drawn) to this video, e.g. clip.mp4")
     ap.add_argument("--cpu", action="store_true", help="force CPU even if a GPU provider exists")
-    ap.add_argument("--trt", action="store_true", help="Jetson: use the onnxruntime TensorRT provider if installed")
+    ap.add_argument("--trt", action="store_true",
+                    help="Jetson: run model_fp16.engine (or model_fp32.engine) built by build_trt.sh; "
+                         "without it, says why and runs on onnxruntime")
     ap.add_argument("--steady", choices=["auto", "high", "normal", "low", "off"], default="auto",
                     help="box steadiness: high = steadiest, low = follows fastest, off = raw "
                          "(auto = config.json, default high)")
