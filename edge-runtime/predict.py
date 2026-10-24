@@ -18,9 +18,14 @@ The model knows its own task (config.json):
                     single  the one main object
                     precise one object, 25-crop grid scan (slower)
 
-"none" = nothing you trained is in view: confidence below --min-conf OR the
-frame does not look like your training photos (prototypes in config.json).
-Written for Python 3.6+ so it also runs on Jetson Nano (JetPack 4).
+multi mode lists only the objects it finds ("0 object(s)", headless "[]" if none);
+--min-conf is its per-object threshold (default multi_conf in config.json) -
+lower finds more, higher is stricter. The similarity gate is not used in multi.
+single / precise / classification print "none" = nothing you trained is in
+view: confidence below --min-conf (default 0.65) OR the frame does not look
+like your training photos (prototypes in config.json; --no-proto turns it off).
+Written for Python 3.6+ so it also runs on Jetson Nano (JetPack 4) - which is
+more limited than Jetson Orin Nano (performance and support for new software).
 """
 import argparse
 import json

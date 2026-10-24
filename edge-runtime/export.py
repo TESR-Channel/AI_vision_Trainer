@@ -2,7 +2,7 @@
 
     python export.py --target pi                  # Raspberry Pi 5
     python export.py --target jetson              # Jetson Orin Nano / NX / AGX
-    python export.py --target jetson_nano         # old Jetson Nano (JetPack 4, experimental)
+    python export.py --target jetson_nano         # old Jetson Nano (JetPack 4, experimental; more limited than Orin Nano)
 
 The export picks the BOARD. Which camera to open is decided on the device,
 when you run predict.py there:  python predict.py --camera usb --source 0
