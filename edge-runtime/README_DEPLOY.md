@@ -35,7 +35,7 @@ overrides it.
 | Linux / macOS PC | `bash install_linux.sh` |
 | Raspberry Pi 5 (64-bit Pi OS) | `bash install_pi.sh` |
 | Jetson Orin Nano / NX / AGX | `bash install_jetson.sh` |
-| Jetson Nano (JetPack 4, Python 3.6) | `bash install_jetson.sh` - **experimental**: if pip has no onnxruntime for Python 3.6, install the Jetson build of onnxruntime for JetPack 4.6, or use `bash build_trt.sh` |
+| Jetson Nano (JetPack 4, Python 3.6) | `bash install_jetson.sh` - **experimental**, and more limited than Jetson Orin Nano (performance and support for new software): if pip has no onnxruntime for Python 3.6, install the Jetson build of onnxruntime for JetPack 4.6, or use `bash build_trt.sh` |
 
 > Raspberry Pi: never `sudo pip3 install` - Pi OS blocks it (PEP 668).
 > The installer makes a venv with `--system-site-packages` so the apt
@@ -81,7 +81,8 @@ no engine, or it cannot be loaded (built on another board / TensorRT version),
 
 ## Troubleshooting
 
-- **Everything is "none"** -> `--min-conf 0.5`, or `--proto-th 0.6`, or `--no-proto`; collect more varied photos
+- **No boxes at all (default `multi` mode)** -> multi mode never says "none", it shows `0 object(s)` (`--headless` prints `[]`); lower the threshold, e.g. `--min-conf 0.2` (default: `multi_conf` in `config.json`; a higher value such as 0.5 makes it *stricter*). `--no-proto` does nothing in multi mode. Collect more varied photos
+- **Everything is "none"** (`--mode single` / `precise`, or a classification model) -> `--min-conf 0.5` (default 0.65), or `--proto-th 0.6`, or `--no-proto`; collect more varied photos
 - **Box steadiness** -> default `--steady high` (smoothest: One Euro filter + mirror-average + hold). Fast robot / conveyor: `--steady normal` or `--steady low` (follows faster). Raw: `--steady off --tta off --hold 0`
 - **An object is missed** -> lower `--min-conf 0.2`; add photos of it in more positions (also half out of frame)
 - **Boxes on hands / things you did not train** -> web page: **+ Background**, capture the empty scene + your hands moving (no boxes), train again; quick fix: `--min-conf 0.5`

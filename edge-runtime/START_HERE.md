@@ -19,6 +19,7 @@ python export.py --target pi                  # Raspberry Pi 5
 python export.py --target jetson              # Jetson Orin Nano / NX / AGX
 python export.py --target jetson_nano         # Jetson Nano (JetPack 4, ทดลอง)
 ```
+⚠️ Jetson Nano ด้อยกว่า Jetson Orin Nano มาก — ทั้งความเร็ว และการรองรับซอฟต์แวร์รุ่นใหม่ (ค้างที่ JetPack 4)
 👉 ได้ไฟล์ `exports/tesr-model-pi5.zip` (หรือ `-jetson.zip`) — มีแค่ที่บอร์ดต้องใช้
 
 ## ขั้นที่ 3 — บนบอร์ด: ติดตั้ง + รัน
@@ -65,7 +66,8 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 
 | อาการ | ลอง |
 |---|---|
-| ขึ้น `none` ตลอด | `python predict.py --min-conf 0.5` หรือ `--no-proto` |
+| ไม่มีกรอบเลย (โหมด `multi` ค่าเริ่มต้น — ขึ้น `0 object(s)` / `--headless` พิมพ์ `[]` · ไม่มีคำว่า `none`) | ลด `--min-conf` เช่น `0.2` (ค่าเริ่มต้นคือ `multi_conf` ใน config.json · ยิ่งต่ำยิ่งเจอง่าย) · ถ่ายรูปเพิ่ม |
+| ขึ้น `none` ตลอด (เฉพาะ `--mode single` / `precise` หรือโมเดล classification) | `--min-conf 0.5` (ค่าเริ่มต้น `0.65`) หรือ `--no-proto` |
 | ทักมือ / ของอื่นว่าเป็นวัตถุ | หน้าเว็บ → **+ Background** → ถ่ายฉากว่าง + มือที่ขยับ (ไม่ต้องลากกรอบ) → เทรนใหม่ |
 | กรอบตามช้าไป (แขนกล / สายพานเร็ว) | `--steady normal` หรือ `--steady low` (ค่าเริ่มต้น `high` = นิ่งที่สุด) |
 | เจอวัตถุไม่ครบ | `--min-conf 0.2` · ถ่ายรูปวัตถุนั้นเพิ่มหลายตำแหน่ง |
