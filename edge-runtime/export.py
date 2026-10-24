@@ -6,6 +6,7 @@
 
 The export picks the BOARD. Which camera to open is decided on the device,
 when you run predict.py there:  python predict.py --camera usb --source 0
+(optional --camera usb|csi here only sets the default written into config.json)
 
 Creates  exports/tesr-model-<target>/  and  exports/tesr-model-<target>.zip
 containing only what the device needs (model + predict.py + its installer).

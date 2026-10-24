@@ -16,4 +16,5 @@ $TRTEXEC --onnx=model.onnx --saveEngine=model_fp16.engine --fp16 2>&1 | grep -E 
 ls -lh model_*.engine 2>/dev/null || true
 echo
 echo "Compare the two 'Throughput' lines above - those are YOUR measured numbers."
-echo "Run the engine from Python with onnxruntime-gpu + TensorRT provider:  python predict.py --trt"
+echo "Run it:  python predict.py --trt   (loads model_fp16.engine; needs the JetPack TensorRT"
+echo "        Python module: sudo apt install -y python3-libnvinfer)"

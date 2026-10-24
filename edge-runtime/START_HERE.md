@@ -29,7 +29,7 @@ python export.py --target jetson_nano         # Jetson Nano (JetPack 4, ทด�
 3. source venv/bin/activate
 4. python predict.py                         # ไม่มีจอ (SSH): python predict.py --headless
 ```
-Jetson อยากเร็วขึ้น: `bash build_trt.sh` (สร้าง TensorRT บนตัว Jetson เอง · บอกค่า Throughput FP32 vs FP16 ที่วัดได้จริง)
+Jetson อยากเร็วขึ้น: `bash build_trt.sh` (สร้าง TensorRT บนตัว Jetson เอง · บอกค่า Throughput FP32 vs FP16 ที่วัดได้จริง) แล้ว `python predict.py --trt`
 
 ⚠️ Pi: ห้าม `sudo pip3 install` — ใช้ `install_pi.sh` เท่านั้น
 
@@ -81,6 +81,6 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 
 1. **Computer:** `install_windows.bat` (Linux: `bash install_linux.sh`) → `python predict.py`
 2. **Computer:** `python export.py --target pi|jetson|jetson_nano` → `exports/tesr-model-<target>.zip`
-3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py` (Jetson speed-up: `bash build_trt.sh`)
+3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py` (Jetson speed-up: `bash build_trt.sh` → `python predict.py --trt`)
 
 Need more accuracy or a bigger YOLO model? Web page → **Download Dataset (YOLO)**. That is a **different route** with its own `train.py` / `run.py` / `export.py` in `yolo-trainer/` — that `export.py` **converts** `best.pt`, this one **packages** `model.onnx`, and the device needs `ultralytics` too. Read `yolo-trainer/README.md` first.
