@@ -647,7 +647,8 @@ def main():
     hold = args.hold if args.hold is not None else int((cfg.get("steady") or {}).get("hold", 6))
     stab = Stabilizer(steady, hold=max(0, hold))
     mstab = MultiSteadier(steady, hold=max(0, hold) + 4)
-    print("TESR model | task: %s | mode: %s | runtime: %s" % (model.task, mode, model.provider))
+    print("TESR model v%s | task: %s | mode: %s | runtime: %s"
+          % (cfg.get("trainer_version", "?"), model.task, mode, model.provider))
     if mode in ("single", "precise", "multi"):
         print("steady: %s | hold %d frames | mirror-average %s" % (steady, stab.hold, "on" if tta else "off"))
     print("classes: " + ", ".join(model.names))

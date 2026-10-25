@@ -20,3 +20,15 @@ for name in FILES:
 out.append("};")
 (ROOT / "edge-files.js").write_text("\n".join(out) + "\n", encoding="utf-8")
 print("wrote edge-files.js (%d files)" % len(FILES))
+
+
+# ---- CHANGELOG.md from version.js (single source of truth, strict JSON inside) ----
+_src = (ROOT / "version.js").read_text(encoding="utf-8")
+_app = json.loads(_src[_src.index("window.TESR_APP = ") + len("window.TESR_APP = "):_src.rindex("}") + 1])
+_lines = ["# Changelog - %s" % _app["name"], "",
+          "Current version: **v%s** (%s). Also shown on the web page (click the version badge)." % (_app["version"], _app["date"]),
+          "Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.", ""]
+for h in _app["history"]:
+    _lines += ["## v%s - %s" % (h["v"], h["date"]), ""] + ["- " + x for x in h["en"]] + [""] + ["- " + x for x in h["th"]] + [""]
+(ROOT / "CHANGELOG.md").write_text("\n".join(_lines), encoding="utf-8")
+print("wrote CHANGELOG.md (v%s)" % _app["version"])

@@ -4,7 +4,7 @@ Train an image-recognition AI **entirely in your browser** — nothing to instal
 your photos never leave your computer — then take the *same dataset* to
 production-grade YOLO on your PC and deploy it to a Raspberry Pi or NVIDIA Jetson.
 
-**▶ Try it now: https://tesr-channel.github.io/AI_vision_Trainer/**
+**▶ Try it now: https://tesr-channel.github.io/AI_vision_Trainer/**  ·  current version and what's new: [`CHANGELOG.md`](CHANGELOG.md) (also the version badge on the page)
 
 <p align="center">
   <img src="logo.png" alt="TESR" width="300">
@@ -131,6 +131,7 @@ MQTT/Node-RED integration and Smart Factory solutions.
 | `index.html`, `i18n.js` | the web trainer (Thai strings in `i18n.js`) |
 | `onnx-export.js` | in-browser TF.js → ONNX writer (backbone + heads + multi-object `output0`) |
 | `edge-runtime/` | `predict.py`, installers, `build_trt.sh`, `README_DEPLOY.md` shipped in the device zip |
+| `version.js` | version number + what's new (TH/EN) — shown on the page, stamped into every export; `CHANGELOG.md` is generated from it |
 | `edge-files.js` | generated from `edge-runtime/` — run `python tools/build_edge_files.py` after editing it |
 | `yolo-trainer/` | offline YOLO train / run / export |
 

@@ -499,6 +499,7 @@
       preprocess: 'RGB, resize (stretch) to 224x224, /255, NCHW',
       input_scale: String(scale), input_min: String(nMin),
       author: 'TESR AI Vision Web Trainer',
+      trainer_version: String(opts.trainerVersion || ''),
     };
     const bytes = g.serialize({name: 'images', dims: [1, 3, size, size]}, outputs, meta);
     return {bytes, outputs: outputs.map(o => o.name), windows: task === 'detect' ? windowGeometry(G, size).length : 0,

@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="./version.js"></script>
 <script src="./onnx-export.js"></script>
 <script src="./edge-files.js"></script>
 <style>
@@ -128,6 +129,14 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
 .mbox .sub{color:var(--muted);font-size:13px;margin-bottom:12px}
 #lblCv{max-width:100%;border-radius:12px;background:#111;cursor:crosshair;display:block;touch-action:none;margin:0 auto}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}.step{width:25%}}
+.verbadge{display:inline-block;vertical-align:middle;margin-left:10px;padding:2px 10px;border-radius:999px;
+  font-size:12px;font-weight:500;background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold);
+  cursor:pointer;line-height:1.6}
+.verbadge:hover{transform:none;box-shadow:none;background:var(--gold);color:#1a1815}
+.wn h4{font-weight:600;font-size:14px;margin:14px 0 4px;color:var(--gold)}
+.wn h4 small{color:var(--muted);font-weight:300;margin-left:6px}
+.wn ul{margin:0 0 0 18px;font-size:13.5px;color:var(--ink)}
+.wn li{margin:2px 0}
 </style>
 </head>
 <body>
@@ -135,7 +144,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   <header>
     <img src="./logo.png" alt="TESR" class="logo">
     <div>
-      <h1>TESR <span>AI Vision Web Trainer</span></h1>
+      <h1>TESR <span>AI Vision Web Trainer</span><button class="verbadge" id="verBadge"
+        onclick="openWhatsNew()" title="What's new">v&ndash;</button></h1>
       <p id="hdTag">Train an image-recognition AI entirely in your browser &mdash; nothing to install,
       your photos never leave this computer.</p>
     </div>
@@ -370,7 +380,19 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     </div>
   </div>
 
-  <footer>TESR ACADEMY &mdash; Learn it. Build it. Deploy it. For real.</footer>
+  <footer>TESR ACADEMY &mdash; Learn it. Build it. Deploy it. For real. &middot; <span id="verFoot"></span></footer>
+</div>
+
+<!-- What's new (version history) -->
+<div class="modal" id="wnModal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="mbox" style="max-height:82vh;overflow:auto">
+    <h3 id="wnTitle">What's new</h3>
+    <p class="sub" id="wnSub"></p>
+    <div class="wn" id="wnList"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="quiet" onclick="document.getElementById('wnModal').classList.remove('open')">OK</button>
+    </div>
+  </div>
 </div>
 
 <!-- Labeling modal (detection task) -->
@@ -396,6 +418,24 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
 </div>
 
 <script>
+/* ============ version ============ */
+const APP = window.TESR_APP || {name: 'TESR AI Vision Web Trainer', version: '?', date: '', history: []};
+function renderVersion(){
+  document.getElementById('verBadge').textContent = 'v' + APP.version;
+  document.getElementById('verFoot').textContent = 'v' + APP.version + (APP.date ? ' (' + APP.date + ')' : '');
+}
+function openWhatsNew(){
+  const th = LANG === 'th';
+  document.getElementById('wnTitle').textContent = th ? 'มีอะไรใหม่' : "What's new";
+  document.getElementById('wnSub').innerHTML = (th
+    ? 'เวอร์ชันที่หน้านี้โหลดอยู่: <b>v' + APP.version + '</b> &mdash; ถ้ายังเห็นเลขเก่า กด Ctrl+Shift+R'
+    : 'This page is running <b>v' + APP.version + '</b> &mdash; still an old number? press Ctrl+Shift+R');
+  document.getElementById('wnList').innerHTML = (APP.history || []).map(h =>
+    `<h4>v${h.v}<small>${h.date || ''}</small></h4><ul>${(th ? h.th : h.en).map(x => `<li>${x}</li>`).join('')}</ul>`
+  ).join('');
+  document.getElementById('wnModal').classList.add('open');
+}
+
 /* ============ theme ============ */
 function applyTheme(m){
   document.documentElement.dataset.theme = m;
@@ -965,7 +1005,7 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
 /* writes photos + labels + project.json under `base` - the exact format Load Project reads.
    Used by Save Project AND by every export, so any TESR zip can be loaded back. */
 function writeProject(zip, base){
-  const meta = {app:'tesr-ai-vision', version:1, task, classes:[]};
+  const meta = {app:'tesr-ai-vision', version:1, trainer_version: APP.version, task, classes:[]};
   let n = 0;
   classes.forEach((c,ci)=>{
     const mc = {name:c.name, examples:[]};
@@ -2039,7 +2079,8 @@ async function buildOnnx(){
   const r = TESR_ONNX.buildModel({net, head, boxHead: task === 'detect' ? boxHead : null,
                                   boxHeadS: task === 'detect' ? boxHeadS : null,
                                   detHead: task === 'detect' ? detHead : null,
-                                  protos, task: boxHead && task === 'detect' ? 'detect' : 'classify'});
+                                  protos, task: boxHead && task === 'detect' ? 'detect' : 'classify',
+                                  trainerVersion: APP.version});
   onnxCache = {version: modelVersion, bytes: r.bytes, info: r, check: null};
   return onnxCache;
 }
@@ -2128,7 +2169,7 @@ function deployConfig(oc){
                           centroids: protos.C.map(c => c.map(v => +v.toFixed(5)))} : null,
     onnx: {input: 'images [1,3,224,224] RGB 0..1 (stretch-resize)', outputs: oc.info.outputs,
            windows: oc.info.windows},
-    generatedBy: 'TESR AI Vision Web Trainer',
+    generatedBy: 'TESR AI Vision Web Trainer', trainer_version: APP.version,
   };
 }
 
@@ -2148,7 +2189,7 @@ async function exportModel(){
     zip.file(dir + 'classes.txt', head.classNames.join('\n'));
     zip.file(dir + 'predict.py', F['predict.py']);
     zip.file(dir + 'export.py', F['export.py']);
-    const header = '> **This model:** task **' + cfg.task + '**'
+    const header = '> **This model:** TESR AI Vision Trainer **v' + APP.version + '** · task **' + cfg.task + '**'
       + (cfg.task === 'detection' ? ' · mode **' + cfg.detect_mode + '**' : '')
       + ' · classes: ' + cfg.classes.join(', ') + '\n\n';
     zip.file(dir + 'START_HERE.md', header + F['START_HERE.md']);
@@ -2849,7 +2890,7 @@ async function addLegacyTF(zip, dir){
   zip.file(dir + 'install_linux.sh', PY_SH);
 }
 
-checkHW(); syncTargetUI(true); applyLang();
+checkHW(); syncTargetUI(true); applyLang(); renderVersion();
 </script>
 </body>
 </html>
