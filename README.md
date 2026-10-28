@@ -30,6 +30,9 @@ files, auto-augment small datasets, train in seconds, test live, and export.
 3. Hold **Capture** while moving the object around — angle, distance, lighting.
 4. Detection: click a photo (or **Label photos**) and drag a box.
    **Scroll / Q / E rotates the box** for tilted objects — it exports as YOLO OBB.
+   Several objects in one photo (e.g. every screw head on a part)? Drag again on
+   empty space for another box, click a box to select it, **Delete** removes it,
+   **X** clears all.
 5. **Train**, then **Live Test** with your webcam.
 6. **Export** — pick the device (**PC / Raspberry Pi 5 / Jetson Orin / Jetson Nano**)
    and camera (**USB / CSI**), then:
@@ -63,9 +66,9 @@ onnxruntime-web and compares it with the TF.js model on one of your photos.
 Every trained object in view gets its own box, center (x, y) and track id
 (#1, #2 …). A small **grid detector** reads the backbone's 7×7 feature grid:
 each cell says whether an object is centred there, which class and its box.
-It is trained on automatic **mosaics** made from your single-object photos
-(1–4 objects per image, also half out of frame), so you still label one object
-per photo. Neighbouring cells that see the same object are merged into one
+It is trained on automatic **mosaics** made from your photos
+(1–4 objects per image, also half out of frame), so one object per photo is
+enough — and photos where you boxed several objects train it with all of them. Neighbouring cells that see the same object are merged into one
 score-weighted box, the mirrored frame is fused in, and every object is
 smoothed on its own — identical in the web Live Test and in `predict.py`.
 
