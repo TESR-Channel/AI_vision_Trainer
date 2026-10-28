@@ -99,6 +99,8 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgb
 .thumbs .tw:hover .x{display:block}
 .thumbs .aug{position:absolute;left:2px;bottom:2px;font-size:10px;background:rgba(0,0,0,.6);
   color:var(--gold);border-radius:6px;padding:0 4px}
+.thumbs .nbx{position:absolute;right:2px;bottom:2px;font-size:10px;background:rgba(0,0,0,.6);
+  color:#fff;border-radius:6px;padding:0 4px}
 video,canvas.preview{border-radius:12px;background:#111;max-width:100%}
 .bar{height:14px;background:var(--soft);border-radius:999px;overflow:hidden;margin:14px 0 10px}
 .bar div{height:100%;background:linear-gradient(90deg,var(--gold),var(--crimson));
@@ -401,11 +403,14 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <h3 id="lblTitle">Draw a box around the object</h3>
     <p class="sub" id="lblSub">Drag to draw a box &middot; drag a <b>corner/edge handle</b> to resize,
       drag <b>inside</b> to move &middot; <b>Scroll / Q / E</b> = rotate &middot; <b>R</b> = straighten
-      &middot; <b>Enter</b> = confirm &amp; next &middot; <b>X</b> = clear &middot; <b>Esc</b> = close</p>
+      &middot; <b>Enter</b> = confirm &amp; next &middot; <b>X</b> = clear all &middot; <b>Esc</b> = close</p>
+    <p class="sub" id="lblMulti" style="margin-top:-4px">Several objects in one photo? Drag again on empty space
+      for another box &middot; click a box to select it &middot; <b>Delete</b> removes it</p>
     <canvas id="lblCv" width="560" height="420"></canvas>
     <div class="row" style="margin-top:14px">
       <button onclick="lblSaveNext()">&#10003; Confirm &amp; Next (Enter)</button>
-      <button class="quiet" onclick="lblClear()">Clear box (X)</button>
+      <button class="quiet" onclick="lblDelete()" title="Delete / Backspace">Delete box (Del)</button>
+      <button class="quiet" onclick="lblClear()">Clear all (X)</button>
       <button class="quiet" onclick="lblNav(-1)">&#8592; Prev</button>
       <button class="quiet" onclick="lblNav(1)">Next &#8594;</button>
       <span class="tag" id="lblPos" style="margin-left:auto"></span>
@@ -453,7 +458,7 @@ applyTheme(th);
 let LANG = 'en'; try{LANG = localStorage.getItem('tesr_lang') || 'en'}catch(e){}
 function t(en, th2){ return (LANG === 'th' && th2) ? th2 : en; }
 const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSub','augHint',
-                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub','projNote',
+                  'trainSub','testSub','gatesHint','detHint','expNote','lblSub','lblMulti','projNote',
                   'multiHint','onnxHint'];
 function applyLang(){
   const TH = window.TH || {};
@@ -610,10 +615,20 @@ function renderCapChips(){
 /* a class named background / bg / none / empty: photos of what to IGNORE (empty scene,
    hands, other things). In detection it needs NO boxes - it teaches "nothing here". */
 function bgCls(c){ return !!(window.TESR_ONNX && TESR_ONNX.isBackground(c.name)); }
-function labeledCount(c){ return bgCls(c) ? c.examples.length : c.examples.filter(e=>e.box).length; }
+/* boxes of one photo. e.boxes = ALL boxes, e.box = the first one (kept so every
+   single-box reader - box model, older pages - keeps working). Always write via setBoxes. */
+function boxesOf(e){ return (e && e.boxes && e.boxes.length) ? e.boxes : (e && e.box ? [e.box] : []); }
+function hasBox(e){ return boxesOf(e).length > 0; }
+function setBoxes(e, list){
+  const bs = (list || []).filter(Boolean).map(b => b.slice());
+  e.boxes = bs.length ? bs : null;
+  e.box = bs.length ? bs[0].slice() : null;
+  return e;
+}
+function labeledCount(c){ return bgCls(c) ? c.examples.length : c.examples.filter(hasBox).length; }
 function unlabeledTotal(){
   if (task!=='detect') return 0;
-  return classes.reduce((s,c)=>s + (bgCls(c) ? 0 : c.examples.filter(e=>!e.box).length), 0);
+  return classes.reduce((s,c)=>s + (bgCls(c) ? 0 : c.examples.filter(e=>!hasBox(e)).length), 0);
 }
 function addBackground(){
   if (!classes.find(c => bgCls(c))) classes.push({name: 'background', examples: []});
@@ -645,10 +660,11 @@ function renderClasses(){
           &middot; hover to delete${task==='detect' ? ' &middot; click to label' : ''}</span>
       </div>
       <div class="thumbs">${c.examples.map((e,i)=>`
-        <span class="tw ${task==='detect' && !bgCls(c) ? (e.box?'lbl':'unlbl') : ''}"
+        <span class="tw ${task==='detect' && !bgCls(c) ? (hasBox(e)?'lbl':'unlbl') : ''}"
           ${task==='detect' && !bgCls(c) ? `onclick="openLbl('${c.name}', ${i})"` : ''}>
           <img src="${e.thumb}">
           ${e.aug?'<span class="aug">\u2728</span>':''}
+          ${boxesOf(e).length > 1 ? `<span class="nbx" title="boxes in this photo">\u00d7${boxesOf(e).length}</span>` : ''}
           <button class="x" title="Delete this example"
             onclick="event.stopPropagation();deleteExample('${c.name}', ${i})">\u2715</button></span>`).join('')}</div>
     </div>`;}).join('') ||
@@ -738,7 +754,7 @@ async function addExample(clsName, el, thumbURL){
   c.examples.push({feat, thumb: thumbURL,
                    src: disp.toDataURL('image/jpeg', .85),
                    w: disp.width, h: disp.height,
-                   aug: false, box: null});
+                   aug: false, box: null, boxes: null});
   renderClasses();
 }
 function snapThumb(video){
@@ -776,7 +792,7 @@ async function uploadTo(clsName, files){
 }
 
 /* ============ labeling (detection task) ============ */
-let lblCls = null, lblIdx = -1, lblBox = null, lblDrag = null, lblImg = null;
+let lblCls = null, lblIdx = -1, lblBoxes = [], lblSel = -1, lblDrag = null, lblImg = null;   // all boxes of the open photo + the selected one
 function clampBox(b){
   let [cx, cy, w, h] = b;
   w = Math.min(Math.max(w, 0.02), 1); h = Math.min(Math.max(h, 0.02), 1);
@@ -823,7 +839,9 @@ function openLbl(clsName, idx){
   if (!c || !c.examples[idx]) return;
   lblCls = clsName; lblIdx = idx;
   const e = c.examples[idx];
-  lblBox = e.box ? e.box.slice() : null;
+  lblBoxes = boxesOf(e).map(b => b.slice());
+  lblSel = lblBoxes.length ? 0 : -1;
+  lblDrag = null; lblStart = null;
   lblImg = new Image();
   lblImg.onload = () => {
     const cv = document.getElementById('lblCv');
@@ -835,22 +853,46 @@ function openLbl(clsName, idx){
   lblImg.src = e.src;
   document.getElementById('lblTitle').textContent =
     `Draw a box around: ${clsName}`;
-  document.getElementById('lblPos').textContent = `photo ${idx+1}/${c.examples.length}`;
+  lblInfo();
   document.getElementById('lblMsg').textContent = '';
   document.getElementById('lblModal').classList.add('open');
+}
+function lblInfo(){
+  const c = classes.find(x=>x.name===lblCls);
+  const n = lblBoxes.length;
+  document.getElementById('lblPos').textContent = `photo ${lblIdx+1}/${c ? c.examples.length : 0}`
+    + (n > 1 ? ' · ' + t(n + ' boxes', n + ' กรอบ') : '');
 }
 function openNextUnlabeled(){
   for (const c of classes){
     if (bgCls(c)) continue;
-    const i = c.examples.findIndex(e => !e.box);
+    const i = c.examples.findIndex(e => !hasBox(e));
     if (i >= 0) { openLbl(c.name, i); return; }
   }
 }
+function lblCur(){ return lblSel >= 0 ? lblBoxes[lblSel] || null : null; }
 function drawLbl(){
   const cv = document.getElementById('lblCv'), x = cv.getContext('2d');
   x.clearRect(0,0,cv.width,cv.height);
   if (lblImg) x.drawImage(lblImg, 0, 0, cv.width, cv.height);
-  const b = lblDrag || lblBox;
+  const drawingNew = lblDrag && lblMode === 'draw';
+  const many = lblBoxes.length + (drawingNew ? 1 : 0) > 1;
+  // other boxes: thin gold, numbered when there are several
+  lblBoxes.forEach((b, i) => {
+    if (i === lblSel && !drawingNew) return;
+    const [cx, cy, w, h] = b, px = cx*cv.width, py = cy*cv.height;
+    const hw = w*cv.width/2, hh = h*cv.height/2;
+    x.save(); x.translate(px, py); x.rotate(boxAngle(b)*Math.PI/180);
+    x.strokeStyle = '#c9a84c'; x.lineWidth = 2;
+    x.strokeRect(-hw, -hh, hw*2, hh*2);
+    if (many){
+      x.fillStyle = 'rgba(0,0,0,.6)'; x.fillRect(-hw, -hh, 18, 16);
+      x.fillStyle = '#c9a84c'; x.font = '12px Kanit, sans-serif'; x.fillText(String(i + 1), -hw + 4, -hh + 12);
+    }
+    x.restore();
+  });
+  // the selected box (or the one being drawn): red with handles, center + size, exactly as before
+  const b = lblDrag || (drawingNew ? null : lblCur());
   if (b){
     const [cx, cy, w, h] = b, px = cx*cv.width, py = cy*cv.height;
     const hw = w*cv.width/2, hh = h*cv.height/2, rad = boxAngle(b)*Math.PI/180;
@@ -868,26 +910,39 @@ function drawLbl(){
     x.moveTo(px,py-10); x.lineTo(px,py+10); x.stroke();
     x.fillStyle = '#c9a84c'; x.font = '13px Kanit, sans-serif';
     const a = Math.round(boxAngle(b));
-    if (a) x.fillText(a + '\u00b0', px + 14, py - 8);
-    if (lblImg) x.fillText(Math.round(w*lblImg.width) + '\u00d7'
+    if (a) x.fillText(a + '°', px + 14, py - 8);
+    if (lblImg) x.fillText(Math.round(w*lblImg.width) + '×'
       + Math.round(h*lblImg.height) + ' px', px + 14, py + 20);
   }
 }
 const LBL_HANDLES = [[-1,-1],[1,-1],[-1,1],[1,1],[0,-1],[0,1],[-1,0],[1,0]];
-// hit-test a canvas point against the current box: {mode, handle} | null
-function lblHit(p){
-  if (!lblBox) return null;
+// hit-test a canvas point against ONE box: {mode, handle} | {mode, grab} | null
+function lblHitBox(p, b, handles){
   const cv = document.getElementById('lblCv');
-  const [cx, cy, w, h] = lblBox, rad = boxAngle(lblBox)*Math.PI/180;
+  const [cx, cy, w, h] = b, rad = boxAngle(b)*Math.PI/180;
   const dx = p[0]*cv.width - cx*cv.width, dy = p[1]*cv.height - cy*cv.height;
   const lx =  dx*Math.cos(rad) + dy*Math.sin(rad);
   const ly = -dx*Math.sin(rad) + dy*Math.cos(rad);
   const hw = w*cv.width/2, hh = h*cv.height/2;
-  for (const [sx, sy] of LBL_HANDLES){
+  if (handles) for (const [sx, sy] of LBL_HANDLES){
     if (Math.hypot(lx - sx*hw, ly - sy*hh) <= 12) return {mode:'resize', handle:[sx,sy]};
   }
   if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) return {mode:'move', grab:[dx,dy]};
   return null;
+}
+// handles of the selected box first, then the SMALLEST box under the point (nested boxes stay clickable)
+function lblHit(p){
+  const cur = lblCur();
+  if (cur){
+    const h = lblHitBox(p, cur, true);
+    if (h && h.mode === 'resize') return {...h, idx: lblSel};
+  }
+  let best = null, bestA = Infinity;
+  lblBoxes.forEach((b, i) => {
+    const h = lblHitBox(p, b, false);
+    if (h && b[2]*b[3] < bestA){ best = {...h, idx: i}; bestA = b[2]*b[3]; }
+  });
+  return best;
 }
 function lblPoint(ev){
   const cv = document.getElementById('lblCv');
@@ -901,16 +956,19 @@ function lblDown(ev){
   ev.preventDefault();
   lblStart = lblPoint(ev); lblDrag = null;
   const hit = lblHit(lblStart);
+  if (hit && hit.idx !== lblSel){ lblSel = hit.idx; lblInfo(); }    // click a box = select it
   lblMode = hit ? hit.mode : 'draw';
   lblHandle = hit && hit.handle ? hit.handle : null;
   lblGrab = hit && hit.grab ? hit.grab : null;
-  lblBox0 = lblBox ? lblBox.slice() : null;
+  lblBox0 = lblCur() ? lblCur().slice() : null;
+  drawLbl();
 }
 function lblMove(ev){
   const cv = document.getElementById('lblCv');
   if (!lblStart){                       // hover feedback only
-    const hit = lblBox ? lblHit(lblPoint(ev)) : null;
-    cv.style.cursor = hit ? (hit.mode === 'move' ? 'move' : 'pointer') : 'crosshair';
+    const hit = lblBoxes.length ? lblHit(lblPoint(ev)) : null;
+    cv.style.cursor = !hit ? 'crosshair'
+      : hit.idx !== lblSel ? 'pointer' : (hit.mode === 'move' ? 'move' : 'pointer');
     return;
   }
   ev.preventDefault();
@@ -934,32 +992,47 @@ function lblMove(ev){
     const ddx = lcx*Math.cos(rad) - lcy*Math.sin(rad);
     const ddy = lcx*Math.sin(rad) + lcy*Math.cos(rad);
     lblDrag = clampBox([cx + ddx/W, cy + ddy/H, nw/W, nh/H, boxAngle(lblBox0)]);
-  } else {                              // draw a fresh box
+  } else {                              // draw a NEW box (a plain click / tiny jitter adds nothing)
+    if (!lblDrag && Math.hypot((p[0] - lblStart[0])*W, (p[1] - lblStart[1])*H) < 4) return;
     const x1 = Math.min(lblStart[0], p[0]), x2 = Math.max(lblStart[0], p[0]);
     const y1 = Math.min(lblStart[1], p[1]), y2 = Math.max(lblStart[1], p[1]);
-    lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, lblBox ? boxAngle(lblBox) : 0]);
+    lblDrag = clampBox([(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, lblCur() ? boxAngle(lblCur()) : 0]);
   }
   drawLbl();
 }
 function lblUp(ev){
   if (!lblStart) return;
-  if (lblDrag) lblBox = lblDrag;
+  if (lblDrag){
+    if (lblMode === 'draw'){ lblBoxes.push(lblDrag); lblSel = lblBoxes.length - 1; }
+    else if (lblSel >= 0) lblBoxes[lblSel] = lblDrag;
+  }
   lblStart = null; lblDrag = null; lblMode = 'draw'; lblHandle = null; lblGrab = null;
-  drawLbl();
+  lblInfo(); drawLbl();
 }
-function lblClear(){ lblBox = null; lblDrag = null; drawLbl(); }
+function lblClear(){ lblBoxes = []; lblSel = -1; lblDrag = null; lblInfo(); drawLbl(); }
+function lblDelete(){
+  if (lblSel < 0 || !lblBoxes[lblSel]){
+    document.getElementById('lblMsg').textContent = t('Click a box first, then Delete.', 'คลิกเลือกกรอบก่อน แล้วกด Delete');
+    return;
+  }
+  lblBoxes.splice(lblSel, 1);
+  lblSel = lblBoxes.length ? Math.min(lblSel, lblBoxes.length - 1) : -1;
+  lblDrag = null;
+  document.getElementById('lblMsg').textContent = '';
+  lblInfo(); drawLbl();
+}
 function lblSaveNext(){
-  if (!lblBox){ document.getElementById('lblMsg').textContent = 'Draw a box first (drag on the image).'; return; }
+  if (!lblBoxes.length){ document.getElementById('lblMsg').textContent = 'Draw a box first (drag on the image).'; return; }
   const c = classes.find(x=>x.name===lblCls);
-  c.examples[lblIdx].box = lblBox.slice();
+  setBoxes(c.examples[lblIdx], lblBoxes);
   renderClasses();
   // next unlabeled in this class, then any class
-  let i = c.examples.findIndex((e,j) => j > lblIdx && !e.box);
-  if (i < 0) i = c.examples.findIndex(e => !e.box);
+  let i = c.examples.findIndex((e,j) => j > lblIdx && !hasBox(e));
+  if (i < 0) i = c.examples.findIndex(e => !hasBox(e));
   if (i >= 0) { openLbl(lblCls, i); return; }
   for (const c2 of classes){
     if (bgCls(c2)) continue;
-    const k = c2.examples.findIndex(e => !e.box);
+    const k = c2.examples.findIndex(e => !hasBox(e));
     if (k >= 0) { openLbl(c2.name, k); return; }
   }
   closeLbl();
@@ -970,10 +1043,12 @@ function lblNav(d){
   if (i !== lblIdx) openLbl(lblCls, i);
 }
 function rotLbl(d){
-  if (!lblBox) { document.getElementById('lblMsg').textContent = 'Draw a box first, then rotate.'; return; }
-  if (lblBox.length < 5) lblBox.push(0);
-  lblBox[4] = d === 0 ? 0 : normAngle(boxAngle(lblBox) + d);
-  document.getElementById('lblMsg').textContent = 'angle ' + Math.round(lblBox[4]) + '\u00b0';
+  const b = lblCur();
+  if (!b) { document.getElementById('lblMsg').textContent = lblBoxes.length
+    ? t('Click a box first, then rotate.', 'คลิกเลือกกรอบก่อน แล้วค่อยหมุน') : 'Draw a box first, then rotate.'; return; }
+  if (b.length < 5) b.push(0);
+  b[4] = d === 0 ? 0 : normAngle(boxAngle(b) + d);
+  document.getElementById('lblMsg').textContent = 'angle ' + Math.round(b[4]) + '°';
   drawLbl();
 }
 function closeLbl(){ document.getElementById('lblModal').classList.remove('open'); }
@@ -992,6 +1067,7 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
     if (!document.getElementById('lblModal').classList.contains('open')) return;
     if (ev.key === 'Enter') { ev.preventDefault(); lblSaveNext(); }
     else if (ev.key === 'Escape') closeLbl();
+    else if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); lblDelete(); }
     else if (ev.key === 'x' || ev.key === 'X') lblClear();
     else if (ev.key === 'q' || ev.key === 'Q') rotLbl(-3);
     else if (ev.key === 'e' || ev.key === 'E') rotLbl(3);
@@ -1013,7 +1089,8 @@ function writeProject(zip, base){
       if (e.aug) return;                         // \u2728 images are regenerated, not stored
       const f = 'images/' + ci + '_' + ei + '.jpg';
       zip.file(base + f, e.src.split(',')[1], {base64:true});
-      mc.examples.push({file:f, box:e.box || null, w:e.w, h:e.h});
+      const bs = boxesOf(e);                      // `boxes` = all; `box` = first, for older pages
+      mc.examples.push({file:f, box: bs[0] || null, boxes: bs.length ? bs : null, w:e.w, h:e.h});
       n++;
     });
     meta.classes.push(mc);
@@ -1068,9 +1145,9 @@ async function loadProject(file){
         cv2.width = 224; cv2.height = 224;
         cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
         const f = embed(cv2);
-        c.examples.push({feat: await f.array(), thumb: shrink(cv2), src,
-                         w: ex.w || img.width, h: ex.h || img.height,
-                         box: ex.box || null});
+        c.examples.push(setBoxes({feat: await f.array(), thumb: shrink(cv2), src,
+                         w: ex.w || img.width, h: ex.h || img.height},
+                         (ex.boxes && ex.boxes.length) ? ex.boxes : (ex.box ? [ex.box] : [])));
         f.dispose();
         done++;
         if (done % 5 === 0){ m.textContent = 'Loading... ' + done + '/' + total; await tf.nextFrame(); }
@@ -1085,22 +1162,30 @@ async function loadProject(file){
 }
 
 /* ============ augmentation ============ */
-function augmentVariant(img, box){
-  // box-safe transforms only when a box is present: flip / zoom / lighting
+function augmentVariant(img, boxes){
+  // box-safe transforms only when boxes are present: flip / zoom / lighting.
+  // `boxes` = ALL boxes of the photo (or null); every box gets the same transform.
   const c = document.createElement('canvas');
   c.width = 224; c.height = 224;
   const x = c.getContext('2d');
+  const box = boxes && boxes.length ? boxes : null;
   const flip = Math.random() < 0.5;                   // safe with boxes too: cx and angle mirror
   const rot = box ? 0 : (Math.random()*30 - 15) * Math.PI/180;
   const scale = box ? 0.8 + Math.random()*0.45 : 0.9 + Math.random()*0.22;
-  // detection: also MOVE the object to a new spot (kept fully inside the frame)
+  // detection: also MOVE the objects to a new spot - all together, all kept fully inside the frame
   let dx = 0, dy = 0;
   if (box){
-    const cx0 = 0.5 + ((flip ? 1 - box[0] : box[0]) - 0.5)*scale, cy0 = 0.5 + (box[1] - 0.5)*scale;
-    const e = ellipseBox(box, 224, 224), bw = e[2]*scale, bh = e[3]*scale;
+    let x1 = 1, y1 = 1, x2 = 0, y2 = 0;               // union of every (scaled, mirrored) box
+    for (const b of box){
+      const cx0 = 0.5 + ((flip ? 1 - b[0] : b[0]) - 0.5)*scale, cy0 = 0.5 + (b[1] - 0.5)*scale;
+      const e = ellipseBox(b, 224, 224), bw = e[2]*scale, bh = e[3]*scale;
+      x1 = Math.min(x1, cx0 - bw/2); x2 = Math.max(x2, cx0 + bw/2);
+      y1 = Math.min(y1, cy0 - bh/2); y2 = Math.max(y2, cy0 + bh/2);
+    }
+    const bw = x2 - x1, bh = y2 - y1;
     const nx = bw >= 1 ? 0.5 : bw/2 + Math.random()*(1 - bw);
     const ny = bh >= 1 ? 0.5 : bh/2 + Math.random()*(1 - bh);
-    dx = nx - cx0; dy = ny - cy0;
+    dx = nx - (x1 + x2)/2; dy = ny - (y1 + y2)/2;
   }
   x.fillStyle = '#727272'; x.fillRect(0,0,224,224);
   x.filter = `brightness(${(0.75+Math.random()*0.5).toFixed(2)})` +
@@ -1108,14 +1193,13 @@ function augmentVariant(img, box){
              ` saturate(${(0.85+Math.random()*0.3).toFixed(2)})`;
   x.translate(112 + dx*224, 112 + dy*224); x.rotate(rot); x.scale(flip ? -scale : scale, scale);
   x.drawImage(img, -112, -112, 224, 224);
-  let nb = null;
-  if (box){
-    let [cx, cy, w, h] = box;
+  const nbs = !box ? [] : box.map(b => {
+    let [cx, cy, w, h] = b;
     if (flip) cx = 1 - cx;
-    nb = clampBox([0.5 + (cx-0.5)*scale + dx, 0.5 + (cy-0.5)*scale + dy, w*scale, h*scale,
-                   flip ? -boxAngle(box) : boxAngle(box)]);
-  }
-  return {cv: c, box: nb};
+    return clampBox([0.5 + (cx-0.5)*scale + dx, 0.5 + (cy-0.5)*scale + dy, w*scale, h*scale,
+                     flip ? -boxAngle(b) : boxAngle(b)]);
+  });
+  return {cv: c, box: nbs[0] || null, boxes: nbs};
 }
 function shrink(cv){
   const c = document.createElement('canvas');
@@ -1127,9 +1211,9 @@ async function augmentAll(){
   const btn = document.getElementById('btnAug'), msg = document.getElementById('augMsg');
   if (!net) { msg.textContent = 'Backbone still loading \u2014 wait a moment.'; return; }
   const k = +document.getElementById('augMult').value;
-  const need = e => task==='detect' ? (!e.aug && e.box) : !e.aug;
+  const need = e => task==='detect' ? (!e.aug && hasBox(e)) : !e.aug;
   const sources = classes.flatMap(c => c.examples.filter(e => need(e) || (task==='detect' && bgCls(c) && !e.aug))
-    .map(e => ({cls: c, src: e.src, box: e.box})));
+    .map(e => ({cls: c, src: e.src, boxes: task==='detect' ? boxesOf(e) : []})));
   if (!sources.length) {
     msg.textContent = task==='detect'
       ? 'Label some photos first \u2014 only labeled photos are augmented in detection mode.'
@@ -1142,11 +1226,11 @@ async function augmentAll(){
     const img = new Image();
     await new Promise(res => { img.onload = res; img.src = s.src; });
     for (let i = 0; i < k; i++) {
-      const v = augmentVariant(img, s.box);
+      const v = augmentVariant(img, s.boxes);
       const f = embed(v.cv);
-      s.cls.examples.push({feat: await f.array(), thumb: shrink(v.cv),
+      s.cls.examples.push(setBoxes({feat: await f.array(), thumb: shrink(v.cv),
                            src: v.cv.toDataURL('image/jpeg', .8), w: 224, h: 224,
-                           aug: true, box: v.box});
+                           aug: true}, v.boxes));
       f.dispose();
       made++;
       if (made % 10 === 0) {
@@ -1310,7 +1394,7 @@ async function train(){
   const msg = document.getElementById('tMsg');
   msg.className = 'msg';
   if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
-  const pick = c => task==='detect' ? (bgCls(c) ? c.examples : c.examples.filter(e=>e.box)) : c.examples;
+  const pick = c => task==='detect' ? (bgCls(c) ? c.examples : c.examples.filter(hasBox)) : c.examples;
   const usable = classes.filter(c => pick(c).length >= 10);
   if (usable.length < 2) {
     msg.className = 'msg err';
@@ -1329,6 +1413,7 @@ async function train(){
   usable.forEach((c,i)=>{
     pick(c).forEach(e=>{
       xs.push(e.feat); ys.push(i);
+      // single-box head: one box per photo -> the FIRST box (the grid detector below uses all of them)
       if (task==='detect' && e.box && !bgCls(c)){ bx.push(e.feat); by.push(ellipseBox(e.box, e.w, e.h)); }
     });
   });
@@ -1530,9 +1615,15 @@ function boxIoU4(a, b){
   return boxIoU([a[0]-a[2]/2, a[1]-a[3]/2, a[0]+a[2]/2, a[1]+a[3]/2],
                 [b[0]-b[2]/2, b[1]-b[3]/2, b[0]+b[2]/2, b[1]+b[3]/2]);
 }
+function unionBox(bs){                       // upright box around several [cx,cy,w,h] boxes
+  let x1 = 1, y1 = 1, x2 = 0, y2 = 0;
+  for (const b of bs){ x1 = Math.min(x1, b[0] - b[2]/2); x2 = Math.max(x2, b[0] + b[2]/2);
+                       y1 = Math.min(y1, b[1] - b[3]/2); y2 = Math.max(y2, b[1] + b[3]/2); }
+  return [(x1 + x2)/2, (y1 + y2)/2, x2 - x1, y2 - y1];
+}
 function gridBase(it){                       // one photo, moved / zoomed / mirrored, maybe half out of frame
   const c = document.createElement('canvas'); c.width = 224; c.height = 224;
-  const x = c.getContext('2d'), b = it.box;
+  const x = c.getContext('2d'), b = it.box;    // it.box = union of all the photo's boxes (they move together)
   const s = 0.8 + Math.random()*0.4, bw = b[2]*s, bh = b[3]*s;
   const edge = Math.random() < 0.35;
   const rx = edge ? [bw*0.05, 1 - bw*0.05] : [Math.min(bw/2, .5), Math.max(1 - bw/2, .5)];
@@ -1545,35 +1636,50 @@ function gridBase(it){                       // one photo, moved / zoomed / mirr
   if (flip){ x.translate(224, 0); x.scale(-1, 1); }
   x.translate((ncx - b[0]*s)*224, (ncy - b[1]*s)*224); x.scale(s, s);
   x.drawImage(it.cv, 0, 0); x.restore();
-  const objs = it.bg ? [] : [{c: it.ci, box: visBox([flip ? 1 - ncx : ncx, ncy, bw, bh])}];
+  // every box of the photo, same transform; a box whose centre left the frame is dropped
+  const objs = it.bg ? [] : it.boxes.map(o => {
+    const ox = ncx + (o[0] - b[0])*s, oy = ncy + (o[1] - b[1])*s;
+    return [flip ? 1 - ox : ox, oy, o[2]*s, o[3]*s];
+  }).filter(o => o[0] > 0 && o[0] < 1 && o[1] > 0 && o[1] < 1)
+    .map(o => ({c: it.ci, box: visBox(o)}));
   return {cv: c, x, objs, bright};
 }
 function gridMosaic(pool, fg){
   const m = gridBase(pool[Math.floor(Math.random()*pool.length)]);
   const extra = Math.floor(Math.random()*6);
+  const ovA = (a, b) => Math.max(0, Math.min(a[0] + a[2]/2, b[0] + b[2]/2) - Math.max(a[0] - a[2]/2, b[0] - b[2]/2))
+                     * Math.max(0, Math.min(a[1] + a[3]/2, b[1] + b[3]/2) - Math.max(a[1] - a[3]/2, b[1] - b[3]/2));
   for (let k = 0; k < extra && fg.length; k++){
-    const it = fg[Math.floor(Math.random()*fg.length)], b = it.box;
+    const it = fg[Math.floor(Math.random()*fg.length)], b = it.boxes[Math.floor(Math.random()*it.boxes.length)];
     const sx = Math.max(0, (b[0] - b[2]*0.55)*224), sy = Math.max(0, (b[1] - b[3]*0.55)*224);
     const sw = Math.min(224, (b[0] + b[2]*0.55)*224) - sx, sh = Math.min(224, (b[1] + b[3]*0.55)*224) - sy;
     if (sw < 4 || sh < 4) continue;
+    // several objects in that photo: neighbours whose centre is in the cut come along (labeled);
+    // a neighbour cut in pieces would be an unlabeled object -> skip this cut instead
+    const cut = [(sx + sw/2)/224, (sy + sh/2)/224, sw/224, sh/224];
+    const inCut = it.boxes.filter(o => o === b || (o[0]*224 > sx && o[0]*224 < sx + sw && o[1]*224 > sy && o[1]*224 < sy + sh));
+    if (it.boxes.some(o => !inCut.includes(o) && ovA(o, cut) > 0.15*o[2]*o[3])) continue;
     const s = 0.75 + Math.random()*0.4, cw = Math.max(8, sw*s), ch = Math.max(8, sh*s);
     if (cw >= 200 || ch >= 200) continue;
+    const kx = cw/sw, ky = ch/sh;
     for (let t = 0; t < 25; t++){
       const px = -cw*0.4 + Math.random()*(224 - cw*0.2), py = -ch*0.4 + Math.random()*(224 - ch*0.2);
+      const flip = Math.random() < 0.5;
+      const nb = inCut.map(o => {                  // source box -> pasted position (exact, also when mirrored)
+        const lx = (o[0]*224 - sx)*kx;
+        return [(flip ? px + cw - lx : px + lx)/224, (py + (o[1]*224 - sy)*ky)/224, o[2]*kx, o[3]*ky];
+      }).filter(o => o[0] > 0 && o[0] < 1 && o[1] > 0 && o[1] < 1).map(visBox);
+      if (!nb.length) continue;
       const pb = visBox([(px + cw/2)/224, (py + ch/2)/224, cw/224, ch/224]);
       // objects may touch / overlap a little (real scenes do), but not hide each other
-      if (!m.objs.every(o => {
-        const ix = Math.max(0, Math.min(pb[0] + pb[2]/2, o.box[0] + o.box[2]/2) - Math.max(pb[0] - pb[2]/2, o.box[0] - o.box[2]/2));
-        const iy = Math.max(0, Math.min(pb[1] + pb[3]/2, o.box[1] + o.box[3]/2) - Math.max(pb[1] - pb[3]/2, o.box[1] - o.box[3]/2));
-        return ix*iy < 0.2*Math.min(pb[2]*pb[3], o.box[2]*o.box[3]) &&
-               Math.hypot(pb[0] - o.box[0], pb[1] - o.box[1]) > 0.35*(pb[2] + pb[3] + o.box[2] + o.box[3])/2;
-      })) continue;
-      const flip = Math.random() < 0.5;
+      if (!m.objs.every(o =>
+        ovA(pb, o.box) < 0.2*Math.min(pb[2]*pb[3], o.box[2]*o.box[3]) &&
+        Math.hypot(pb[0] - o.box[0], pb[1] - o.box[1]) > 0.35*(pb[2] + pb[3] + o.box[2] + o.box[3])/2)) continue;
       m.x.save(); m.x.filter = `brightness(${m.bright})`;
       if (flip){ m.x.translate(px + cw, py); m.x.scale(-1, 1); m.x.drawImage(it.cv, sx, sy, sw, sh, 0, 0, cw, ch); }
       else m.x.drawImage(it.cv, sx, sy, sw, sh, px, py, cw, ch);
       m.x.restore();
-      m.objs.push({c: it.ci, box: visBox([(px + cw/2)/224, (py + ch/2)/224, b[2]*224*s/224, b[3]*224*s/224])});
+      for (const o of nb) m.objs.push({c: it.ci, box: o});
       break;
     }
   }
@@ -1611,7 +1717,9 @@ async function trainGridDetector(items, nc, p0){
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = it.e.src; });
     const cv = document.createElement('canvas'); cv.width = 224; cv.height = 224;
     cv.getContext('2d').drawImage(img, 0, 0, 224, 224);
-    pool.push({cv, ci: it.ci, bg: it.bg, box: it.bg ? [0.5, 0.5, 1, 1] : ellipseBox(it.e.box, it.e.w, it.e.h)});
+    const boxes = it.bg ? [] : boxesOf(it.e).map(b => ellipseBox(b, it.e.w, it.e.h));   // EVERY box of the photo
+    if (!it.bg && !boxes.length) continue;
+    pool.push({cv, ci: it.ci, bg: it.bg, boxes, box: it.bg ? [0.5, 0.5, 1, 1] : unionBox(boxes)});
   }
   const fg = pool.filter(p => !p.bg);
   const N = Math.max(600, Math.min(1600, pool.length*40));
@@ -2325,7 +2433,7 @@ async function exportDataset(){
   const m = document.getElementById('dsMsg');
   const wantBox = task === 'detect';
   const withAug = document.getElementById('dsAug').checked;
-  const pickOk = e => (!e.aug || withAug) && (!wantBox || e.box);
+  const pickOk = e => (!e.aug || withAug) && (!wantBox || hasBox(e));
   // detection: background photos go in as images with an EMPTY label file (YOLO "background images")
   const names = classes.filter(c => !(wantBox && bgCls(c)) && c.examples.some(pickOk)).map(c => c.name);
   if (!names.length){
@@ -2337,7 +2445,7 @@ async function exportDataset(){
   m.textContent = 'Building dataset zip...';
   // any rotated box -> the WHOLE detection export becomes YOLO OBB (formats can't mix)
   const hasOBB = wantBox && classes.some(c =>
-    c.examples.some(e => pickOk(e) && e.box && Math.abs(boxAngle(e.box)) > 0.5));
+    c.examples.some(e => pickOk(e) && boxesOf(e).some(b => Math.abs(boxAngle(b)) > 0.5)));
   try {
     const zip = new JSZip();
     let n = 0, nAug = 0;
@@ -2364,16 +2472,16 @@ async function exportDataset(){
         if (wantBox){
           zip.file('dataset/images/' + split + '/' + fname + '.jpg',
                    e.src.split(',')[1], {base64: true});
-          let line;
-          if (hasOBB){
-            line = ci + ' ' + obbCorners(e.box, e.w || 640, e.h || 480)
-              .map(c => c[0].toFixed(6) + ' ' + c[1].toFixed(6)).join(' ') + '\n';
-          } else {
-            const [cx, cy, w, h] = e.box;
-            line = ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
+          // one label line per box (several objects in one photo -> several lines)
+          const lines = boxesOf(e).map(b => {
+            if (hasOBB)
+              return ci + ' ' + obbCorners(b, e.w || 640, e.h || 480)
+                .map(c => c[0].toFixed(6) + ' ' + c[1].toFixed(6)).join(' ') + '\n';
+            const [cx, cy, w, h] = b;
+            return ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
                       + w.toFixed(6) + ' ' + h.toFixed(6) + '\n';
-          }
-          zip.file('dataset/labels/' + split + '/' + fname + '.txt', line);
+          });
+          zip.file('dataset/labels/' + split + '/' + fname + '.txt', lines.join(''));
         } else {
           zip.file('dataset/' + split + '/' + c.name + '/' + fname + '.jpg',
                    e.src.split(',')[1], {base64: true});

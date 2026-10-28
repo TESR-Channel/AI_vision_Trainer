@@ -12,9 +12,23 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.1.0",
-  "date": "2026-10-26",
+  "version": "3.2.0",
+  "date": "2026-10-28",
   "history": [
+    {
+      "v": "3.2.0",
+      "date": "2026-10-28",
+      "th": [
+        "หลายกรอบในรูปเดียว: ลากบนที่ว่างอีกครั้ง = กรอบใหม่, คลิกกรอบเพื่อเลือก, Delete = ลบกรอบที่เลือก, X = ล้างทั้งหมด (เช่น label หัวน็อตทุกตัวบนชิ้นงาน)",
+        "Download Dataset (YOLO) เขียน 1 บรรทัดต่อกรอบ, Save / Load Project เก็บทุกกรอบ (zip โปรเจกต์เก่ายังโหลดได้)",
+        "Multi-object detector เทรนจากทุกกรอบในรูป และรูป ✨ ย้ายทุกกรอบไปพร้อมกัน"
+      ],
+      "en": [
+        "Several boxes in one photo: drag on empty space for another box, click a box to select it, Delete removes it, X clears all (e.g. label every screw head on a part)",
+        "Download Dataset (YOLO) writes one label line per box; Save / Load Project keeps every box (old project zips still load)",
+        "The multi-object detector trains on every box of a photo, and generated ✨ photos move all boxes together"
+      ]
+    },
     {
       "v": "3.1.0",
       "date": "2026-10-26",

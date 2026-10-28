@@ -1,7 +1,17 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.1.0** (2026-10-26). Also shown on the web page (click the version badge).
+Current version: **v3.2.0** (2026-10-28). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.2.0 - 2026-10-28
+
+- Several boxes in one photo: drag on empty space for another box, click a box to select it, Delete removes it, X clears all (e.g. label every screw head on a part)
+- Download Dataset (YOLO) writes one label line per box; Save / Load Project keeps every box (old project zips still load)
+- The multi-object detector trains on every box of a photo, and generated ✨ photos move all boxes together
+
+- หลายกรอบในรูปเดียว: ลากบนที่ว่างอีกครั้ง = กรอบใหม่, คลิกกรอบเพื่อเลือก, Delete = ลบกรอบที่เลือก, X = ล้างทั้งหมด (เช่น label หัวน็อตทุกตัวบนชิ้นงาน)
+- Download Dataset (YOLO) เขียน 1 บรรทัดต่อกรอบ, Save / Load Project เก็บทุกกรอบ (zip โปรเจกต์เก่ายังโหลดได้)
+- Multi-object detector เทรนจากทุกกรอบในรูป และรูป ✨ ย้ายทุกกรอบไปพร้อมกัน
 
 ## v3.1.0 - 2026-10-26
 
