@@ -12,9 +12,21 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "date": "2026-11-11",
   "history": [
+    {
+      "v": "3.5.2",
+      "date": "2026-11-11",
+      "th": [
+        "รูปที่ตัดรอใส่คลาส: บอกเป็น 3 ข้อว่า AI #2 แค่นับ — คลาสเดียวชื่อชิ้นเล็ก (เช่น screw) · ตีกรอบทุกตัวที่มี รูว่างไม่ต้องตี · OK / NG ดูจากจำนวนใน ROI Studio",
+        "ตั้งชื่อคลาสเป็น ok / ng / no_screw ตอนมีรูปที่ตัดรออยู่ จะเตือนและให้ตั้งเป็นชื่อชิ้นส่วนแทน"
+      ],
+      "en": [
+        "Crops waiting for a class: a 3-line guide that AI #2 only counts — one class named after the small part (e.g. screw), box each one that is there, empty hole = no box, OK / NG = the count in ROI Studio",
+        "Naming that class ok / ng / no_screw while crops are waiting shows a warning and asks for the part name instead"
+      ]
+    },
     {
       "v": "3.5.1",
       "date": "2026-11-11",
