@@ -86,7 +86,8 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgb
 .cls .head b{font-weight:500}
 .cls .count{margin-left:auto;font-size:13px}
 .cls.pend{border-style:dashed;border-color:var(--gold);background:var(--gold-soft)}
-.cls.pend .hint{font-size:13.5px;color:var(--ink);margin:0 0 10px;max-width:none}
+.cls.pend .hint{font-size:13.5px;color:var(--ink);margin:0 0 6px;max-width:none}
+.cls.pend .pendSteps{margin:0 0 10px 20px;padding:0;font-size:13.5px;line-height:1.6;color:var(--ink)}
 .clschip{background:var(--card);border:1.5px solid var(--edge);color:var(--muted);
   border-radius:999px;padding:8px 18px;font-size:14px}
 .clschip.active{border-color:var(--gold);color:var(--gold);background:var(--gold-soft);font-weight:500}
@@ -723,6 +724,15 @@ function addClass(){
   const name = document.getElementById('newCls').value.trim()
     .replace(/[^A-Za-z0-9_\-]/g,'_');
   if (!name || classes.find(c=>c.name===name)) return;
+  // cropped photos waiting: the class is the small part to count, never a verdict or "missing"
+  if (pending.length && /^(ok|ng|nok|good|bad|pass|fail|defect|missing|empty|none|no|no[_-].*|without[_-].*)$/i.test(name)){
+    document.getElementById('projMsg').innerHTML = t(
+      `⚠ <b>${name}</b> is a result, not a part. Name the small part you count, e.g. <b>screw</b> `
+      + `— box each one that is there, an empty hole gets no box. OK / NG = the count, set in ROI Studio.`,
+      T('pendBadName', name));
+    document.getElementById('newCls').select();
+    return;
+  }
   const c = {name, examples: []};
   classes.push(c);
   document.getElementById('newCls').value = '';
@@ -731,7 +741,7 @@ function addClass(){
     c.examples = pending; pending = []; pendingFrom = ''; capClass = name;
     document.getElementById('projMsg').innerHTML = t(
       `✅ ${n} cropped photos are now in <b>${name}</b> — click a red-border photo and drag a box on `
-      + `every ${name} (drag again on empty space for the next one), Enter = next photo.`,
+      + `every ${name} that is there (drag again on empty space for the next one). Empty hole = no box. Enter = next photo.`,
       T('pendAdopted', n, name));
   }
   renderClasses();
@@ -791,10 +801,16 @@ function renderPending(){
         <b>${t(`✂ ${n} cropped photos from "${pendingFrom}" — waiting for a class`,
                T('pendHead', n, pendingFrom))}</b>
       </div>
-      <div class="hint">${t('<b>Next:</b> type the part’s class name in the box above (e.g. <b>screw</b>) and '
-        + 'press <b>+ Add Class</b> &mdash; these photos go into that class. Then click a photo and drag a box '
-        + 'on <b>every</b> part (drag again on empty space for the next one), <b>Enter</b> = confirm &amp; next.',
-        T('pendHint'))}</div>
+      <div class="hint">${t('This AI only <b>counts</b> the small part. OK / NG = the count, decided later in ROI Studio.',
+        T('pendWhy'))}</div>
+      <ol class="pendSteps">
+        <li>${t('Type <b>one</b> class for the small part, e.g. <b>screw</b> &rarr; <b>+ Add Class</b> (all these photos go into it)',
+          T('pendS1'))}</li>
+        <li>${t('On every photo, box each screw that <b>is there</b>. An empty hole gets <b>no box</b>. <b>Enter</b> = next photo',
+          T('pendS2'))}</li>
+        <li>${t('No <b>ok</b> / <b>ng</b> / <b>no_screw</b> class. Good part: 8 boxes &rarr; 8 = OK &middot; missing one: 7 boxes &rarr; NG',
+          T('pendS3'))}</li>
+      </ol>
       <div class="thumbs">${pending.map(e => `
         <span class="tw unlbl" onclick="document.getElementById('newCls').focus()"><img src="${e.thumb}"></span>`
       ).join('')}</div>
