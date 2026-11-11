@@ -12,9 +12,21 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.6.0",
+  "version": "3.6.1",
   "date": "2026-11-12",
   "history": [
+    {
+      "v": "3.6.1",
+      "date": "2026-11-12",
+      "th": [
+        "ชุดเทรน YOLO: เหลือไฟล์โมเดลไฟล์เดียว ชื่อ_yolo.onnx (ไม่มี best.onnx ซ้ำ) · yolov8n.pt ตัวตั้งต้นเก็บไว้ใน .venv",
+        "บอกชัดว่า 1 zip = 1 โมเดล — งาน AI 2 ชั้นต้องดาวน์โหลดจากทั้ง 2 โปรเจกต์ (START_HERE, ข้อความบนเว็บ, ตอนเทรนเสร็จ)"
+      ],
+      "en": [
+        "YOLO kit: one model file, NAME_yolo.onnx (no duplicate best.onnx); the yolov8n.pt starting weights live inside .venv",
+        "Says clearly that 1 zip = 1 model - a two-AI job needs a download from both projects (START_HERE, web message, end of training)"
+      ]
+    },
     {
       "v": "3.6.0",
       "date": "2026-11-12",

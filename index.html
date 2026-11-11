@@ -3373,7 +3373,7 @@ async function exportDataset(){
     m.innerHTML = t('Downloaded <b>' + zipName + '</b>: ' + n + ' photos (' + (n - nAug) + ' real + ' + nAug
       + ' generated \u2728 \u2192 train only)' + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
       + ' \u2014 unzip, then double-click <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>)'
-      + ' \u2192 you get <b>' + kit.name + '.onnx</b> for ROI Studio.'
+      + ' \u2192 you get <b>' + kit.name + '.onnx</b> for ROI Studio. 1 zip = 1 model (two AIs: download the other project too).'
       + (nStraightened ? ' ' + nStraightened + ' rotated box(es) were saved as plain boxes around them.' : ''),
       T('dsDone', zipName, n, nAug, kit.name) + (nStraightened ? ' · กรอบที่หมุนไว้ ' + nStraightened
         + ' กรอบ บันทึกเป็นกรอบตรงที่ครอบมัน' : ''));

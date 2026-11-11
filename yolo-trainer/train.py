@@ -63,7 +63,7 @@ def export_onnx(weights, imgsz, dest):
     except Exception as e:                       # very new torch without opset 12 -> its default
         print("opset 12 export failed (%s) - trying the default opset" % e)
         out = YOLO(str(weights)).export(format="onnx", imgsz=imgsz)
-    shutil.copy(out, dest)
+    shutil.move(str(out), str(dest))            # one model file only: NAME.onnx (no leftover best.onnx)
     print("\n==> %s is ready: TESR ROI Studio -> + Add a trained model -> pick this file" % dest)
 
 
@@ -92,6 +92,9 @@ def main():
         "obb": "yolov8n-obb.pt",
         "classify": "yolov8n-cls.pt",
     }[task]
+    # one-click kit: keep the downloaded starting weights out of sight, inside .venv/
+    if not args.model and (HERE / ".venv").is_dir():
+        model_name = str(HERE / ".venv" / model_name)
     print("Task: %s  |  model: %s  |  data: %s" % (task, model_name, data_arg))
 
     from ultralytics import YOLO
