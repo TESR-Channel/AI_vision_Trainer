@@ -12,9 +12,23 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "date": "2026-11-11",
   "history": [
+    {
+      "v": "3.5.0",
+      "date": "2026-11-11",
+      "th": [
+        "ตารางตรวจจับ 14×14 สำหรับชิ้นเล็กที่อยู่ชิดกัน (หัวน็อต ขาพิน): เลือก Auto / 7×7 / 14×14 ข้างปุ่ม Train Now — Auto ใช้ 14×14 เมื่อกรอบเล็กหรือมีหลายกรอบต่อรูป เดิม 7×7 หัวน็อตที่อยู่ติดกันตกช่องเดียวกันจนนับไม่ครบ",
+        "model.onnx ยังเป็น input 224 และ output0 แบบเดิม ใช้ได้ทันทีใน ROI Studio, runner และ predict.py",
+        "Send to ROI Studio ตั้งชื่อไฟล์ตามคลาส (เช่น terminal.onnx, screw.onnx) ส่ง 2 โมเดลสำหรับ QC สองชั้นได้โดยชื่อไม่ชนกัน"
+      ],
+      "en": [
+        "14×14 detection grid for small, close parts (screw heads, pins): Auto / 7×7 / 14×14 next to Train Now - Auto picks 14×14 when the boxes are small or many per photo. On 7×7, neighbouring screw heads fell in one cell and were under-counted",
+        "model.onnx keeps its 224 input and output0 layout, so ROI Studio, the runner and predict.py use it unchanged",
+        "Send to ROI Studio names the file after the class (e.g. terminal.onnx, screw.onnx), so the two models of a two-stage QC never clash"
+      ]
+    },
     {
       "v": "3.4.0",
       "date": "2026-11-11",

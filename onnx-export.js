@@ -304,7 +304,8 @@
           throw new Error('unsupported TensorFlow.js op "' + nd.op + '" at ' + nd.name);
       }
     }
-    return visit(outNode);
+    // several outputs share one conversion (the fine grid map is inside the backbone)
+    return Array.isArray(outNode) ? outNode.map(visit) : visit(outNode);
   }
 
   /* ---------------- dense heads (tf.Sequential of Dense layers) ---------------- */
@@ -418,7 +419,10 @@
     if (Math.abs(scale - 1) > 1e-7) xin = g.op('Mul', [xin, g.f('in_scale', [], [scale])], {}, 'x_scaled');
     if (Math.abs(nMin) > 1e-7) xin = g.op('Add', [xin, g.f('in_min', [], [nMin])], {}, 'x_norm');
     const where = findFeatureNode(net.model);
-    const fmap = convertBackbone(g, net.model, xin, size, where.fmap);
+    const fineDet = task === 'detect' && detHead && detHead.fine && detHead.node;
+    const [fmap, dmap] = fineDet
+      ? convertBackbone(g, net.model, xin, size, [where.fmap, detHead.node])
+      : [convertBackbone(g, net.model, xin, size, where.fmap), null];
     const [C, G, G2] = fmap.shape;
     if (G !== G2) throw new Error('unexpected feature map ' + fmap.shape);
 
@@ -429,9 +433,10 @@
 
     if (task === 'detect' && detHead) {
       // multi-object grid detector: every 7x7 cell -> (cx, cy, w, h) + per-class score
-      const det = emitGridHead(g, fmap.name, C, G, detHead, nc, size);   // [1,4+nc,G*G]
+      const dm = dmap || fmap, Cd = dm.shape[0], Gd = dm.shape[1];   // 14x14 map for small parts
+      const det = emitGridHead(g, dm.name, Cd, Gd, detHead, nc, size);   // [1,4+nc,Gd*Gd]
       g.out('Identity', [det.out], {}, 'output0');
-      outputs.push({name: 'output0', dims: [1, 4 + nc, G * G]});
+      outputs.push({name: 'output0', dims: [1, 4 + nc, Gd * Gd]});
       g.out('Identity', [emitHead(g, feat, clsL, 'softmax')], {}, 'probs');
       outputs.push({name: 'probs', dims: [1, nc]});
       g.out('Identity', [det.topBox], {}, 'box');                         // box of the strongest cell
@@ -503,7 +508,7 @@
     };
     const bytes = g.serialize({name: 'images', dims: [1, 3, size, size]}, outputs, meta);
     return {bytes, outputs: outputs.map(o => o.name), windows: task === 'detect' ? windowGeometry(G, size).length : 0,
-            fmapNode: where.fmap, featDim: C, grid: G};
+            fmapNode: where.fmap, featDim: C, grid: dmap ? dmap.shape[1] : G};
   }
 
   const api = {buildModel, findFeatureNode, convertBackbone, Graph, windowGeometry,

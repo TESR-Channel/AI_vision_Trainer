@@ -305,6 +305,13 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <option value="0.005">0.005</option>
         </select>
         <div class="hint">Lower = steadier, slower</div></div>
+      <div id="gridBox"><label class="tag">Detection grid</label><br>
+        <select id="gridSel" style="width:230px">
+          <option value="auto" selected>Auto</option>
+          <option value="7">7&times;7 &mdash; larger objects</option>
+          <option value="14">14&times;14 &mdash; small, close parts</option>
+        </select>
+        <div class="hint" id="gridHint">Auto: 14&times;14 when the boxes are small or many per photo (screw heads, pins)</div></div>
       <button id="btnTrain" onclick="train()" style="margin-bottom:22px">&#129504; Train Now</button>
     </div>
     <div class="bar"><div id="tbar"></div></div>
@@ -340,7 +347,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
         <div class="hint" id="gatesHint">Two gates decide <b>"none"</b>: low confidence (threshold above) OR the
         frame does not <i>look like</i> any of your training photos (feature similarity, learned
         automatically at training time).</div>
-        <div class="hint" id="multiHint" style="display:none"><b>Every object</b>: each cell of a 7&times;7
+        <div class="hint" id="multiHint" style="display:none"><b>Every object</b>: each cell of a 7&times;7 (or 14&times;14 for small, close parts)
         grid over the frame says whether an object is centred there, which class and its box &mdash; so every
         trained object in view gets its own box, center (x, y) and id (#1, #2 &hellip;), each smoothed on its own.
         It was trained on automatic mosaics of your photos (several objects, also half out of frame). This is
@@ -1929,12 +1936,12 @@ function fmapOf(el){ return tf.tidy(() => net.model.execute(bbInput(el), fmapNod
 async function predictEl(el){
   let ft, sBox = null;
   if (detHead){
-    const fm = tf.tidy(() => {
+    const [fm, dm] = tf.tidy(() => {
       const x = bbInput(el);
-      return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode());
+      return detMaps(tf.concat([x, tf.image.flipLeftRight(x)], 0));
     });
     ft = tf.tidy(() => fm.slice([0, 0, 0, 0], [1, -1, -1, -1]).mean([1, 2]).squeeze());
-    const rt = gridRows(fm); const rows = await rt.array(); rt.dispose(); fm.dispose();
+    const rt = gridRows(dm); const rows = await rt.array(); rt.dispose(); fm.dispose(); if (dm !== fm) dm.dispose();
     const top = rs => { let best = rs[0], bm = -1;
       for (const r of rs){ const m = Math.max(...r.slice(4)); if (m > bm){ bm = m; best = r; } } return best; };
     const a = top(rows[0]), b = top(rows[1]);
@@ -2110,14 +2117,14 @@ async function train(){
       });
       Xb.dispose(); Yb.dispose();
       boxHeadS = null;
-      detHead = await trainGridDetector(
-        usable.flatMap((c, i) => pick(c).map(e => ({e, ci: i, bg: TESR_ONNX.isBackground(c.name)}))),
-        names.length, clsShare + 15);
+      const gItems = usable.flatMap((c, i) => pick(c).map(e => ({e, ci: i, bg: TESR_ONNX.isBackground(c.name)})));
+      detHead = await trainGridDetector(gItems, names.length, clsShare + 15, wantFineGrid(gItems));
     } else { boxHeadS = null; detHead = null; }
     protos = computeProtos(usable.map(c => pick(c).map(e=>e.feat)), names);
     const secs = ((performance.now()-t0)/1000).toFixed(1);
     document.getElementById('tbar').style.width = '100%';
     msg.textContent = `\u2705 Trained in ${secs}s on this computer \u2014 test it live below.`
+      + (detHead ? ' ' + t(`Detection grid ${detHead.grid}\u00d7${detHead.grid}.`, `ตารางตรวจจับ ${detHead.grid}\u00d7${detHead.grid}`) : '')
       + (low.length ? ` \u26a0\ufe0f Below the recommended ${min}/class: ${low.join(', ')} \u2014 it will work, but more photos = better.` : '');
     document.getElementById('testCard').style.display = '';
     document.getElementById('btnExport').disabled = false;
@@ -2245,6 +2252,43 @@ async function trainSpatialBox(examples, p0){
    are cut and pasted 1-4 at a time (also half out of frame) into one image, so the
    model learns to find every object in view. Same math runs in model.onnx (output0). */
 const GRID_MULTI_CONF = 0.3;
+/* 7x7 cells (stride 32) are ~32 px of the 224 picture: two screw heads 40 px
+   apart land in neighbouring cells and the 3x3 peak rule keeps only one. For
+   small, close parts the detector reads a 14x14 map instead - block 13's
+   expansion (stride 16, ReLU6) of the same backbone, same 224 input, so the
+   .onnx keeps its input, its output0 layout and every consumer of it. */
+const FINE_RE = /expanded_conv_13\/expand\/Relu6$/;
+let fineNodeName;
+function fineNode(){
+  if (fineNodeName === undefined){
+    const nodes = net.model.executor.graph.nodes;
+    const k = Object.keys(nodes).find(k => FINE_RE.test(nodes[k].name));
+    fineNodeName = k ? nodes[k].name : null;
+  }
+  return fineNodeName;
+}
+function wantFineGrid(items){
+  const sel = (document.getElementById('gridSel') || {}).value || 'auto';
+  if (sel !== 'auto') return sel === '14' && !!fineNode();
+  const sides = [], per = [];
+  for (const it of items){
+    if (it.bg) continue;
+    const bs = boxesOf(it.e).map(b => ellipseBox(b, it.e.w, it.e.h));
+    if (!bs.length) continue;
+    per.push(bs.length);
+    bs.forEach(b => sides.push(Math.max(b[2], b[3])));
+  }
+  if (!sides.length || !fineNode()) return false;
+  sides.sort((a, b) => a - b);
+  const med = sides[sides.length >> 1], avg = per.reduce((a, b) => a + b, 0) / per.length;
+  return med < 0.22 || avg >= 4;
+}
+/* x = bbInput batch -> [7x7 map for the classifier, the map the grid detector reads] */
+function detMaps(x){
+  if (detHead && detHead.fine) return net.model.execute(x, [fmapNode(), detHead.node]);
+  const fm = net.model.execute(x, fmapNode());
+  return [fm, fm];
+}
 function visBox(b){
   const x1 = Math.max(0, b[0] - b[2]/2), y1 = Math.max(0, b[1] - b[3]/2);
   const x2 = Math.min(1, b[0] + b[2]/2), y2 = Math.min(1, b[1] + b[3]/2);
@@ -2346,7 +2390,8 @@ function gridLoss(yT, yP, nc){
     return pos.add(neg).sum().neg().div(npos).add(mk.mul(pb.sub(bx).abs()).sum().div(npos).mul(5));
   });
 }
-async function trainGridDetector(items, nc, p0){
+async function trainGridDetector(items, nc, p0, fine){
+  const node = fine && fineNode() ? fineNode() : fmapNode();
   const bar = document.getElementById('tbar');
   let src = items.filter(it => !it.e.aug);
   if (src.length < 8) src = items;                       // tiny sets: use ✨ copies too
@@ -2372,7 +2417,7 @@ async function trainGridDetector(items, nc, p0){
       cvs.push(smp.cv); targets.push(smp.objs);
     }
     const q = tf.tidy(() => {
-      const fm = net.model.execute(bbInput(tf.stack(cvs.map(c => tf.browser.fromPixels(c)))), fmapNode());
+      const fm = net.model.execute(bbInput(tf.stack(cvs.map(c => tf.browser.fromPixels(c)))), node);   // ReLU6 map
       return fm.mul(255/6).round().clipByValue(0, 255).cast('int32');
     });
     if (!G){ G = q.shape[1]; C = q.shape[3]; per = G*G*C; }
@@ -2380,7 +2425,7 @@ async function trainGridDetector(items, nc, p0){
     for (let k = 0; k < n; k++) feats.push(Uint8Array.from(d.subarray(k*per, (k + 1)*per)));
     bar.style.width = (p0 + 25*Math.min(1, (i + n)/N)) + '%';
     document.getElementById('tmetrics').innerHTML =
-      `<span>Multi-object detector <b>preparing ${Math.min(i + n, N)}/${N}</b></span>`;
+      `<span>Multi-object detector ${fine ? '14\u00d714' : '7\u00d77'} <b>preparing ${Math.min(i + n, N)}/${N}</b></span>`;
     await tf.nextFrame();
   }
   const D = nc + 5, tgt = targets.map(objs => {           // [G,G,nc | cx,cy,w,h | mask]
@@ -2423,6 +2468,7 @@ async function trainGridDetector(items, nc, p0){
     await tf.nextFrame();
   }
   model.nc = nc;
+  model.node = node; model.fine = node !== fmapNode(); model.grid = G;
   return model;
 }
 /* raw grid output -> [{cls, name, conf, box:[cx,cy,w,h] 0..1}] - same as decode_multi() in predict.py */
@@ -2717,9 +2763,9 @@ function boxIoU(a, b){
 }
 async function predictMulti(el){
   if (detHead){                              // frame + its mirror, fused (steadier boxes)
-    const fm = tf.tidy(() => { const x = bbInput(el);
-      return net.model.execute(tf.concat([x, tf.image.flipLeftRight(x)], 0), fmapNode()); });
-    const rt = gridRows(fm), rows = await rt.array(); rt.dispose(); fm.dispose();
+    const [fm, dm] = tf.tidy(() => { const x = bbInput(el);
+      return detMaps(tf.concat([x, tf.image.flipLeftRight(x)], 0)); });
+    const rt = gridRows(dm), rows = await rt.array(); rt.dispose(); fm.dispose(); if (dm !== fm) dm.dispose();
     const mir = gridPeaks(rows[1]).map(r => { const q = r.slice(); q[0] = 1 - q[0]; return q; });
     // weak detections (>= half the threshold) may only keep an already-tracked object alive
     return gridDecode(gridPeaks(rows[0]).concat(mir), GRID_MULTI_CONF*0.5);
@@ -2856,8 +2902,8 @@ async function selfCheck(oc){
   ref.forEach((v, i) => { d = Math.max(d, Math.abs(v - out.probs.data[i])); });
   refF.forEach((v, i) => { fd = Math.max(fd, Math.abs(v - out.feat.data[i])); fm = Math.max(fm, Math.abs(v)); });
   if (detHead && task === 'detect' && out.output0){
-    const fm = fmapOf(cv), rt = gridRows(fm);
-    const rows = (await rt.array())[0]; rt.dispose(); fm.dispose();
+    const [fm, dm] = tf.tidy(() => detMaps(bbInput(cv))), rt = gridRows(dm);
+    const rows = (await rt.array())[0]; rt.dispose(); fm.dispose(); if (dm !== fm) dm.dispose();
     const o = out.output0.data, nc = head.classNames.length, NN = rows.length;
     rows.forEach((r, k) => {                       // output0 is in 224-px units, browser rows 0..1
       for (let a = 0; a < 4; a++) d = Math.max(d, Math.abs(r[a] - o[a*NN + k]/224));
@@ -2909,7 +2955,7 @@ function deployConfig(oc){
     detect_mode: det ? document.getElementById('tgtMode').value : 'classify',
     min_conf: +document.getElementById('minConf').value,
     steady: {preset: STEADY_DEFAULT, hold: STEADY_HOLD, mirror_average: 'auto'},
-    multi_conf: GRID_MULTI_CONF, detector: detHead ? 'grid7' : 'single',
+    multi_conf: GRID_MULTI_CONF, detector: detHead ? 'grid' + detHead.grid : 'single',
     target: document.getElementById('tgt').value,
     camera: document.getElementById('tgtCam').value, camera_index: 0,
     prototypes: protos ? {names: protos.names, threshold: +protos.thr.toFixed(3),
@@ -3006,12 +3052,16 @@ async function sendToRoiStudio(){
     const {oc, note} = await onnxWithCheck(m);
     const det = task === 'detect' && !!boxHead;
     const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    // named after what it finds, so two models (e.g. terminal + screw for two-stage QC)
+    // never share a file name inside ROI Studio's export
+    const main = head.classNames.find(n => !TESR_ONNX.isBackground(n)) || 'model';
+    const deploy = (String(main).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'model') + '.onnx';
     const rec = {
       id: 'tr' + Date.now().toString(36),
-      name: 'Web Trainer ' + (det ? 'detect' : 'classify') + ' ' + stamp,
+      name: main + ' (Web Trainer ' + (det ? 'detect' : 'classify') + ') ' + stamp,
       type: det ? 'detect' : 'classify', size: 224,
       conf: +document.getElementById('minConf').value, iou: 0.45,
-      names: head.classNames.slice(), deploy: 'model.onnx', bytes: oc.bytes,
+      names: head.classNames.slice(), deploy, bytes: oc.bytes,
     };
     if (sameOrigin){
       const db = await roiStudioDB();
@@ -3022,14 +3072,14 @@ async function sendToRoiStudio(){
       });
       db.close();
       if (win) win.location.href = ROI_STUDIO_URL; else window.open(ROI_STUDIO_URL, '_blank');
-      m.innerHTML = t(`✔ Sent to ROI Studio as <b>${rec.name}</b> — in ROI Studio: draw an ROI → task <b>YOLO ${rec.type}</b> → pick this model. When you export there, copy <code>model.onnx</code> next to the runner. `,
-                      `✔ ส่งเข้า ROI Studio แล้วชื่อ <b>${rec.name}</b> — ใน ROI Studio: วาดกรอบ ROI → เลือกงาน <b>YOLO ${rec.type}</b> → เลือกโมเดลนี้ ตอน export ให้คัดลอก <code>model.onnx</code> ไปวางข้าง runner `) + note;
+      m.innerHTML = t(`✔ Sent to ROI Studio as <b>${rec.name}</b> — in ROI Studio: draw an ROI → task <b>YOLO ${rec.type}</b> → pick this model (two-stage QC: task <b>AI 2 ชั้น</b>, one model each). ROI Studio's export puts <code>${deploy}</code> in its zip. `,
+                      `✔ ส่งเข้า ROI Studio แล้วชื่อ <b>${rec.name}</b> — ใน ROI Studio: วาดกรอบ ROI → เลือกงาน <b>YOLO ${rec.type}</b> → เลือกโมเดลนี้ (QC สองชั้น: งาน <b>AI 2 ชั้น</b> ใช้โมเดลละตัว) ตอนส่งออกจาก ROI Studio ไฟล์ <code>${deploy}</code> อยู่ใน zip ให้แล้ว `) + note;
     } else {
       // opened from a file or another host: browsers keep storage per site, so hand the file over instead
-      download(new Blob([oc.bytes], {type: 'application/octet-stream'}), 'model.onnx');
+      download(new Blob([oc.bytes], {type: 'application/octet-stream'}), deploy);
       if (win) win.location.href = ROI_STUDIO_URL; else window.open(ROI_STUDIO_URL, '_blank');
-      m.innerHTML = t(`Downloaded <b>model.onnx</b> and opened ROI Studio. There: <b>+ Add a trained model</b> → pick the file → type <b>${det ? 'Object Detection' : 'Image Classification'}</b>, size <b>224</b>, classes: <code>${head.classNames.join(', ')}</code>. (Direct hand-off works when this page runs from tesr-channel.github.io.) `,
-                      `ดาวน์โหลด <b>model.onnx</b> และเปิด ROI Studio แล้ว ที่นั่นกด <b>+ เพิ่มโมเดลที่เทรนแล้ว</b> → เลือกไฟล์ → ชนิด <b>${det ? 'Object Detection' : 'Image Classification'}</b> ขนาด <b>224</b> คลาส: <code>${head.classNames.join(', ')}</code> (ส่งตรงอัตโนมัติได้เมื่อเปิดหน้านี้จาก tesr-channel.github.io) `) + note;
+      m.innerHTML = t(`Downloaded <b>${deploy}</b> and opened ROI Studio. There: <b>+ Add a trained model</b> → pick the file → type <b>${det ? 'Object Detection' : 'Image Classification'}</b>, size <b>224</b>, classes: <code>${head.classNames.join(', ')}</code>. (Direct hand-off works when this page runs from tesr-channel.github.io.) `,
+                      `ดาวน์โหลด <b>${deploy}</b> และเปิด ROI Studio แล้ว ที่นั่นกด <b>+ เพิ่มโมเดลที่เทรนแล้ว</b> → เลือกไฟล์ → ชนิด <b>${det ? 'Object Detection' : 'Image Classification'}</b> ขนาด <b>224</b> คลาส: <code>${head.classNames.join(', ')}</code> (ส่งตรงอัตโนมัติได้เมื่อเปิดหน้านี้จาก tesr-channel.github.io) `) + note;
     }
   } catch (e) {
     if (win) win.close();
