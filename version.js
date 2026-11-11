@@ -12,9 +12,25 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.5.3",
-  "date": "2026-11-11",
+  "version": "3.6.0",
+  "date": "2026-11-12",
   "history": [
+    {
+      "v": "3.6.0",
+      "date": "2026-11-12",
+      "th": [
+        "Download Dataset (YOLO) = ชุดเทรนคลิกเดียว: แตก zip → ดับเบิลคลิก TRAIN_WINDOWS.bat (Mac / Linux / Jetson: bash train_mac_linux.sh) → สร้าง .venv + ติดตั้งเองครั้งแรก → เทรน → ได้ ชื่อ_yolo.onnx ไปใส่ ROI Studio — ไม่ต้องย้าย dataset ไม่ต้องพิมพ์คำสั่ง",
+        "zip ตั้งชื่อตามคลาส (เช่น screw-yolo-train.zip) ขนาดภาพเลือกให้จากรูป (รูปที่ตัด 320 · รูปเต็ม 416) 100 epochs",
+        "train.py --onnx NAME: เทรนเสร็จ export ONNX ให้ด้วย · requirements.txt มี onnx + onnxslim แล้ว",
+        "กรอบที่หมุนไว้แค่บางกรอบ (เช่น เผลอ scroll ตอนตีกรอบ) export เป็นกรอบตรงที่ครอบมัน — เป็น YOLO OBB เฉพาะเมื่อกรอบส่วนใหญ่หมุน (ROI Studio อ่าน YOLO ปกติ)"
+      ],
+      "en": [
+        "Download Dataset (YOLO) is now a one-click training kit: unzip -> double-click TRAIN_WINDOWS.bat (Mac / Linux / Jetson: bash train_mac_linux.sh) -> makes its own .venv and installs on the first run -> trains -> NAME_yolo.onnx for ROI Studio. No moving the dataset, no typing commands",
+        "The zip is named after the class (e.g. screw-yolo-train.zip); image size picked from the photos (crops 320, full photos 416), 100 epochs",
+        "train.py --onnx NAME exports ONNX after training; requirements.txt now includes onnx + onnxslim",
+        "A few rotated boxes (e.g. a stray scroll while labeling) export as the plain box around them; the dataset becomes YOLO OBB only when most boxes are rotated (ROI Studio reads plain YOLO)"
+      ]
+    },
     {
       "v": "3.5.3",
       "date": "2026-11-11",

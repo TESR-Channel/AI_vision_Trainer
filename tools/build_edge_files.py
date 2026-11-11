@@ -18,8 +18,17 @@ for name in FILES:
     text = (SRC / name).read_text(encoding="utf-8").replace("\r\n", "\n")
     out.append("  %s: %s," % (json.dumps(name), json.dumps(text, ensure_ascii=False)))
 out.append("};")
+# the YOLO route travels inside "Download Dataset (YOLO)": one-click scripts + trainer, at the zip root
+YOLO = ROOT / "yolo-trainer"
+YOLO_FILES = ["TRAIN_WINDOWS.bat", "train_mac_linux.sh", "train.py", "run.py", "export.py",
+              "requirements.txt", "README.md"]
+out.append("window.TESR_YOLO_FILES = {")
+for name in YOLO_FILES:
+    text = (YOLO / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+    out.append("  %s: %s," % (json.dumps(name), json.dumps(text, ensure_ascii=False)))
+out.append("};")
 (ROOT / "edge-files.js").write_text("\n".join(out) + "\n", encoding="utf-8")
-print("wrote edge-files.js (%d files)" % len(FILES))
+print("wrote edge-files.js (%d edge + %d yolo files)" % (len(FILES), len(YOLO_FILES)))
 
 
 # ---- CHANGELOG.md from version.js (single source of truth, strict JSON inside) ----

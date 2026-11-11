@@ -1,3 +1,6 @@
 # TESR YOLO Trainer (Python 3.10 - 3.12 recommended)
 ultralytics>=8.2
 opencv-python
+# ONNX export for TESR ROI Studio (python train.py --onnx NAME / export.py --target onnx)
+onnx>=1.12,<2
+onnxslim

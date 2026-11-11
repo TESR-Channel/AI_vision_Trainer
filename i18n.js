@@ -59,7 +59,7 @@ window.TH = {
       + '+ ยิ่งดีชัดเจน) รูปถูกแปลงเป็น feature บน GPU ระหว่างถ่าย '
       + 'เทรนจึงใช้เวลาไม่กี่วินาที ทุกอย่างอยู่ในหน่วยความจำของหน้านี้ — ไม่มีการอัปโหลดไปไหน';
   },
-  dsHintDetect: 'รูปที่ติด label แล้วเป็น <b>YOLO detection dataset</b> พร้อมเทรน (images + labels + data.yaml) กรอบเอียง export เป็น <b>YOLO OBB</b> อัตโนมัติ เทรน offline ด้วย <code>yolo-trainer/train.py</code> เพื่อความแม่นระดับ production — กรอบที่คุณลากคือ label จึงไม่ต้องใช้พื้นหลังเรียบ รูป ✨ ที่สร้างสืบทอดกรอบและไปอยู่ train split (val เป็นรูปจริง)',
+  dsHintDetect: '<b>ชุดเทรน YOLO คลิกเดียว</b>: รูปที่ติด label แล้ว (images + labels + data.yaml) พร้อมตัวเทรน แตก zip แล้วดับเบิลคลิก <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>) — ครั้งแรกติดตั้งให้เอง ได้ไฟล์ <b>ชื่อ.onnx</b> ไปใส่ ROI Studio · กรอบเอียง export เป็น <b>YOLO OBB</b> อัตโนมัติ · รูป ✨ ไปอยู่ train (val เป็นรูปจริง)',
   dsHintClassify: 'รูปของคุณเป็น <b>YOLO classification dataset</b> พร้อมเทรน (โฟลเดอร์ละคลาส) เทรน offline ด้วย <code>yolo-trainer/train.py</code> — ตรวจโหมดให้อัตโนมัติ รูป ✨ ไปอยู่ train split (val เป็นรูปจริง)',
   readiness: function(min, good, detect){
     return 'แนะนำขั้นต่ำ <b>' + min + '</b> รูป' + (detect ? 'ที่ติด label แล้ว' : '')
@@ -75,6 +75,11 @@ window.TH = {
   },
   trainNeedDet: 'คลาสชิ้นส่วนต้องมีรูปที่<b>ตีกรอบแล้ว</b> 10 รูปขึ้นไป · รูปขอบแดง: ตีกรอบทุกชิ้นที่มี '
     + 'หรือถ้าไม่มีเลย กด <b>∅ รูปนี้ไม่มี…</b> (ปุ่ม 0)',
+  dsDone: function(zipName, n, nAug, name){
+    return 'ดาวน์โหลด <b>' + zipName + '</b> แล้ว: ' + n + ' รูป (จริง ' + (n - nAug) + ' + สร้าง ✨ ' + nAug + ' → train เท่านั้น)'
+      + ' — แตก zip แล้วดับเบิลคลิก <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>)'
+      + ' → ได้ <b>' + name + '.onnx</b> ไปใส่ ROI Studio';
+  },
   autoBgDone: function(n){ return '✨ สร้างรูป Background ' + n + ' รูปจากส่วนที่ไม่มีกรอบในรูปของคุณให้แล้ว'; },
 
   /* ✂ Crop boxes (two-stage QC) - static blocks keyed by element id */

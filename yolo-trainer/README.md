@@ -10,6 +10,17 @@ collect + label        →   train.py → run.py → export.py   →   copy mode
 (Download Dataset YOLO)      train      test     convert        Raspberry Pi / Jetson
 ```
 
+## Quick start — one click (v3.6.0+)
+
+**Download Dataset (YOLO)** now gives a complete kit: unzip it and double-click
+**`TRAIN_WINDOWS.bat`** (Mac / Linux / Jetson: `bash train_mac_linux.sh`). The first run
+creates its own `.venv` and installs everything; later runs train straight away. You get
+`NAME.onnx` (for TESR ROI Studio → + Add a trained model) and `best.pt` (for `run.py`).
+No copying the dataset next to `train.py` — it is already there.
+
+เริ่มเร็ว: แตก zip จาก **Download Dataset (YOLO)** → ดับเบิลคลิก **`TRAIN_WINDOWS.bat`**
+(Mac / Linux / Jetson: `bash train_mac_linux.sh`) → ได้ `NAME.onnx` ไปใส่ ROI Studio
+
 ## Which route am I on?
 
 The web trainer has two exits. They are not the same thing.
