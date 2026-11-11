@@ -119,7 +119,7 @@ window.TH = {
   cropWarnUnsaved: function(n){ return 'โปรเจกต์ 1 มี ' + n + ' รูป และมีการแก้ไขที่ยังไม่ได้บันทึก'; },
   cropNewDone: function(n, name, savedAs){
     return '✂ โปรเจกต์ใหม่: รูปที่ตัดจาก <b>' + name + '</b> ' + n + ' รูป'
-      + (savedAs ? ' (บันทึกโปรเจกต์ 1 เป็น <b>' + savedAs + '</b> แล้ว)' : '')
+      + (savedAs ? ' (บันทึกโปรเจกต์ 1 = AI #1 หา' + name + ' เป็น <b>' + savedAs + '</b> ในโฟลเดอร์ Downloads แล้ว — เก็บไว้ ต้องใช้ตอนเทรน)' : '')
       + ' — พิมพ์ชื่อคลาสของชิ้นส่วนในช่องด้านล่าง เช่น <b>screw</b> แล้วกด <b>+ Add Class</b>';
   },
   pendHead: function(n, from){ return '✂ รูปที่ตัดจาก "' + from + '" ' + n + ' รูป — รอใส่คลาส'; },
