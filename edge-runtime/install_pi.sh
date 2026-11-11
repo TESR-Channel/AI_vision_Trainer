@@ -18,6 +18,5 @@ python -c "import onnxruntime, cv2, numpy; print('onnxruntime', onnxruntime.__ve
 echo
 echo "Done! Run:"
 echo "  source venv/bin/activate"
-echo "  python predict.py                 # camera type from config.json"
-echo "  python predict.py --camera csi    # ribbon camera"
-echo "  python predict.py --camera usb    # USB webcam"
+echo "  python predict.py --camera csi --source 0    # ribbon camera"
+echo "  python predict.py --camera usb --source 0    # USB webcam"

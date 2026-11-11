@@ -12,7 +12,7 @@ echo.
 echo ============================================
 echo  Done! To run your model:
 echo    venv\Scripts\activate
-echo    python predict.py
+echo    python predict.py --camera usb --source 0
 echo ============================================
 pause
 exit /b 0

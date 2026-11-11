@@ -3,12 +3,12 @@
 One script for PC, Raspberry Pi 5 and NVIDIA Jetson. Needs only:
     onnxruntime  numpy  opencv        (no TensorFlow, no PyTorch)
 
-    python predict.py                         # camera from config.json (usb / csi)
-    python predict.py --source photo.jpg      # one image
-    python predict.py --source clip.mp4       # a video file
-    python predict.py --camera csi            # ribbon camera (Pi: Picamera2, Jetson: GStreamer)
+    python predict.py --camera usb --source 0   # USB webcam 0 (1, 2 = other webcams)
+    python predict.py --camera file --source photo.jpg   # one image
+    python predict.py --camera file --source clip.mp4    # a video file
+    python predict.py --camera csi --source 0   # ribbon camera (Pi: Picamera2, Jetson: GStreamer)
     python predict.py --mode single           # detection: only the main object
-    python predict.py --headless              # no window (SSH) - prints results only
+    python predict.py --camera usb --source 0 --headless   # no window (SSH) - prints results only
     python predict.py --trt                   # Jetson: the engine build_trt.sh made
 
 The model knows its own task (config.json):
@@ -600,7 +600,7 @@ def main():
     cfg = load_config()
     ap = argparse.ArgumentParser(description="Run a TESR web-trained ONNX model")
     ap.add_argument("--source", default=None, help="camera index (0,1..) or image/video path")
-    ap.add_argument("--camera", choices=["usb", "csi"], default=None,
+    ap.add_argument("--camera", choices=["usb", "csi", "file", "ip"], default=None,
                     help="camera type (default from config.json: %s)" % cfg.get("camera", "usb"))
     ap.add_argument("--mode", choices=["auto", "classify", "single", "precise", "multi"], default="auto",
                     help="auto = config.json (%s)" % cfg.get("detect_mode", "single"))
@@ -694,9 +694,13 @@ def main():
 
     src = args.source if args.source is not None else str(cfg.get("camera_index", 0))
     if not src.isdigit():
-        if not os.path.exists(src):
+        if "://" in src:                       # --camera ip --source rtsp://... / http://...
+            cam = cv2.VideoCapture(src)
+            if not cam.isOpened():
+                raise SystemExit("Could not open stream: " + src)
+        elif not os.path.exists(src):
             raise SystemExit("File not found: " + src)
-        if src.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp")):
+        if "://" not in src and src.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp")):
             bgr = cv2.imread(src)
             if bgr is None:
                 raise SystemExit("Could not read image: " + src)
@@ -707,7 +711,8 @@ def main():
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
             return
-        cam = cv2.VideoCapture(src)
+        if "://" not in src:
+            cam = cv2.VideoCapture(src)
         reader = cam.read
         release = cam.release
     else:

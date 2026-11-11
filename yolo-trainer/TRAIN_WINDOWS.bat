@@ -1,6 +1,6 @@
 @echo off
 REM ==== TESR YOLO Trainer - double-click to train (Windows) ====
-REM First run: makes its own Python environment (.venv) and installs everything (internet needed).
+REM First run: makes its own Python environment (venv) and installs everything (internet needed).
 REM Next runs: trains right away. Change the 3 settings below if you like.
 setlocal
 cd /d "%~dp0"
@@ -24,13 +24,13 @@ if not defined PY goto nopython
 echo Python: %PY%
 
 REM ---- 2. own environment, made once ----
-if exist ".venv\Scripts\python.exe" goto haveenv
+if exist "venv\Scripts\python.exe" goto haveenv
 echo.
-echo [1/3] Making the Python environment .venv ...
-%PY% -m venv .venv || goto err
+echo [1/3] Making the Python environment venv ...
+%PY% -m venv venv || goto err
 :haveenv
-set "VPY=.venv\Scripts\python.exe"
-if exist ".venv\tesr_ok.txt" goto train
+set "VPY=venv\Scripts\python.exe"
+if exist "venv\tesr_ok.txt" goto train
 echo.
 echo [2/3] Installing YOLO - first time only, takes a few minutes ...
 "%VPY%" -m pip install --upgrade pip
@@ -43,7 +43,7 @@ echo NVIDIA card found - installing PyTorch with CUDA (about 2.5 GB) ...
 "%VPY%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126 || echo CUDA PyTorch failed - continuing on the CPU.
 :deps
 "%VPY%" -m pip install -r requirements.txt || goto err
-echo ok> ".venv\tesr_ok.txt"
+echo ok> "venv\tesr_ok.txt"
 
 REM ---- 3. train + export NAME.onnx ----
 :train
@@ -55,7 +55,10 @@ echo.
 echo ==================================================
 echo   Done!  %NAME%.onnx  is in this folder.
 echo   ROI Studio: + Add a trained model - pick %NAME%.onnx
-echo   Test with the webcam:  .venv\Scripts\python run.py
+echo   Test with the camera:
+echo     venv\Scripts\activate
+echo     python run.py --camera usb --source 0
+echo   (another camera: --source 1 or 2)
 echo   1 zip = 1 model. Two AIs (find + count)? Download the other project too.
 echo ==================================================
 start "" explorer /select,"%~dp0%NAME%.onnx"
@@ -81,6 +84,6 @@ echo.
 echo Something went wrong - read the red lines above. Common fixes:
 echo  - no internet on the first run: connect and run again
 echo  - out of memory: open this file in Notepad and set IMGSZ=320
-echo  - start clean: delete the .venv folder and run again
+echo  - start clean: delete the venv folder and run again
 pause
 exit /b 1

@@ -14,8 +14,14 @@ collect + label        →   train.py → run.py → export.py   →   copy mode
 
 **Download Dataset (YOLO)** now gives a complete kit: unzip it and double-click
 **`TRAIN_WINDOWS.bat`** (Mac / Linux / Jetson: `bash train_mac_linux.sh`). The first run
-creates its own `.venv` and installs everything; later runs train straight away. You get
-`NAME.onnx` (for TESR ROI Studio → + Add a trained model) and `best.pt` (for `run.py`).
+creates its own `venv` and installs everything; later runs train straight away. You get
+`NAME.onnx` (for TESR ROI Studio → + Add a trained model) and `best.pt`. Test it the same way as
+every TESR export:
+
+```
+venv\Scripts\activate                       (Mac / Linux: source venv/bin/activate)
+python run.py --camera usb --source 0
+```
 No copying the dataset next to `train.py` — it is already there.
 
 เริ่มเร็ว: แตก zip จาก **Download Dataset (YOLO)** → ดับเบิลคลิก **`TRAIN_WINDOWS.bat`**
@@ -51,7 +57,7 @@ pip install -r requirements.txt
 
 # unzip "Download Dataset (YOLO)" from the web page, put dataset/ next to train.py, then:
 python train.py                # auto-detects detect / rotated (OBB) / classify -> best.pt
-python run.py --conf 0.25      # test with your webcam - live FPS shows top-right
+python run.py --camera usb --source 0 --conf 0.25      # test with your webcam - live FPS shows top-right
 ```
 
 `run.py` always shows a status line (what was found, or the best near-miss with
@@ -110,7 +116,7 @@ Run (activate first in every new terminal):
 ```bash
 source ~/yolo-env/bin/activate
 cd ~/yolo-trainer
-python run.py --weights best_ncnn_model     # add --headless over SSH
+python run.py --camera usb --source 0 --weights best_ncnn_model     # add --headless over SSH
 ```
 
 `externally-managed-environment` or `ModuleNotFoundError: ncnn` means the venv
@@ -134,7 +140,7 @@ pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages    # for t
 python3 -c "import torch; print(torch.cuda.is_available())"              # must print True
 
 sudo nvpmodel -m 0 && sudo jetson_clocks    # full speed - run again after every boot
-python3 run.py --weights best.pt            # live FPS top-right; --headless over SSH
+python3 run.py --camera usb --source 0 --weights best.pt            # live FPS top-right; --headless over SSH
 ```
 
 **Fastest on Jetson = TensorRT.** The build takes several minutes — that is
@@ -144,7 +150,7 @@ improving the dataset, build the engine when the model is final
 
 ```bash
 python3 export.py --target jetson      # on the Jetson -> best.engine (FP16)
-python3 run.py --weights best.engine   # compare the FPS counter with best.pt
+python3 run.py --camera usb --source 0 --weights best.engine   # compare the FPS counter with best.pt
 ```
 
 <details><summary><b>JetPack 6 install · error fixes</b></summary>
@@ -255,7 +261,7 @@ pip install -r requirements.txt
 
 # แตก zip จากปุ่ม "Download Dataset (YOLO)" วางโฟลเดอร์ dataset/ ข้าง train.py แล้ว:
 python train.py                # ตรวจโหมดอัตโนมัติ -> best.pt
-python run.py --conf 0.25      # ทดสอบด้วย webcam - FPS โชว์มุมขวาบน
+python run.py --camera usb --source 0 --conf 0.25      # ทดสอบด้วย webcam - FPS โชว์มุมขวาบน
 ```
 
 <details><summary><b>⚡ เทรนเร็วขึ้นด้วย GPU NVIDIA (Windows)</b></summary>
@@ -302,7 +308,7 @@ python -m pip install --no-cache-dir -r requirements.txt
 ```bash
 source ~/yolo-env/bin/activate
 cd ~/yolo-trainer
-python run.py --weights best_ncnn_model     # ผ่าน SSH เติม --headless
+python run.py --camera usb --source 0 --weights best_ncnn_model     # ผ่าน SSH เติม --headless
 ```
 
 ขึ้น `externally-managed-environment` / หา `ncnn` ไม่เจอ = ข้าม venv หรือใช้
@@ -324,7 +330,7 @@ pip install "onnx<2" onnxslim onnxruntime-gpu --break-system-packages    # ส�
 python3 -c "import torch; print(torch.cuda.is_available())"              # ต้องได้ True
 
 sudo nvpmodel -m 0 && sudo jetson_clocks    # เร่งเต็มสปีด (รันใหม่หลังบูตทุกครั้ง)
-python3 run.py --weights best.pt            # FPS โชว์มุมขวาบน · ผ่าน SSH เติม --headless
+python3 run.py --camera usb --source 0 --weights best.pt            # FPS โชว์มุมขวาบน · ผ่าน SSH เติม --headless
 ```
 
 **เร็วสุดบน Jetson = TensorRT** — build นานหลายนาทีเป็นเรื่องปกติ และทำ
@@ -333,7 +339,7 @@ python3 run.py --weights best.pt            # FPS โชว์มุมขวา
 
 ```bash
 python3 export.py --target jetson      # บนตัว Jetson -> best.engine (FP16)
-python3 run.py --weights best.engine   # เทียบ FPS กับ best.pt ได้เลย
+python3 run.py --camera usb --source 0 --weights best.engine   # เทียบ FPS กับ best.pt ได้เลย
 ```
 
 ### Jetson Nano (รุ่นเดิม) — ให้ใช้เส้นทาง browser แทน

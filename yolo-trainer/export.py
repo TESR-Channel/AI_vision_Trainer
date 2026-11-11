@@ -20,7 +20,7 @@ Speed tip for Raspberry Pi:  --imgsz 320  (smaller input = more FPS,
 slightly lower accuracy - test on your real scene).
 
 The exported model runs with the SAME runner:
-    python run.py --weights <exported model> [--headless]
+    python run.py --camera usb --source 0 --weights <exported model> [--headless]
 """
 import argparse
 import importlib.util
@@ -311,8 +311,8 @@ def main():
     print("\nExported: %s" % out)
     write_samples(out)
     print("Run it exactly like best.pt:")
-    print("    python run.py --weights %s" % out)
-    print("    python run.py --weights %s --headless   # over SSH, no display" % out)
+    print("    python run.py --camera usb --source 0 --weights %s" % out)
+    print("    python run.py --camera usb --source 0 --weights %s --headless   # over SSH, no display" % out)
     print("    python sample_predict.py                  # minimal integration demo")
     if args.target == "pi" and not args.imgsz:
         print("Too slow on the Pi? Re-export with:  python export.py --target pi --imgsz 320")

@@ -363,9 +363,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       </div>
       <div>
         <div class="note" id="expNote" style="margin-top:0">
-          <b>One flow:</b> Download Model &rarr; on your computer: install, <code>python predict.py</code>
+          <b>One flow:</b> Download Model &rarr; on your computer: install, <code>python predict.py --camera usb --source 0</code>
           &rarr; <code>python export.py --target pi</code> or <code>--target jetson</code> &rarr; copy to the
-          board, install, <code>python predict.py</code>. Open <code>START_HERE.md</code> in the zip.
+          board, install, <code>python predict.py --camera usb --source 0</code>. Open <code>START_HERE.md</code> in the zip.
         </div>
         <div class="row" style="margin-top:14px;align-items:flex-end">
           <div style="display:none"><label class="tag">Deploy to</label><br>
@@ -3147,8 +3147,8 @@ async function exportModel(){
     writeProject(zip, dir + 'project/');      // Load Project accepts this zip too
     const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
     download(blob, 'tesr-model.zip');
-    m.innerHTML = t(`Downloaded <b>tesr-model.zip</b> — open <b>START_HERE.md</b>: 1) install + <code>python predict.py</code> on your computer, 2) <code>python export.py --target pi</code> or <code>jetson</code>, 3) copy to the board. `,
-                    `ดาวน์โหลด <b>tesr-model.zip</b> แล้ว — เปิด <b>START_HERE.md</b>: 1) ติดตั้ง + <code>python predict.py</code> บนคอม 2) <code>python export.py --target pi</code> หรือ <code>jetson</code> 3) ก๊อปไปบอร์ด `) + note;
+    m.innerHTML = t(`Downloaded <b>tesr-model.zip</b> — open <b>START_HERE.md</b>: 1) install + <code>python predict.py --camera usb --source 0</code> on your computer, 2) <code>python export.py --target pi</code> or <code>jetson</code>, 3) copy to the board. `,
+                    `ดาวน์โหลด <b>tesr-model.zip</b> แล้ว — เปิด <b>START_HERE.md</b>: 1) ติดตั้ง + <code>python predict.py --camera usb --source 0</code> บนคอม 2) <code>python export.py --target pi</code> หรือ <code>jetson</code> 3) ก๊อปไปบอร์ด `) + note;
   } catch (e) {
     m.className = 'msg err';
     m.textContent = 'Export failed: ' + e.message;
@@ -3403,7 +3403,7 @@ echo.
 echo ============================================
 echo  Done! To run your model:
 echo    venv\\Scripts\\activate
-echo    python predict.py --source 0
+echo    python predict.py --camera usb --source 0
 echo ============================================
 pause
 exit /b 0
@@ -3439,7 +3439,7 @@ echo
 echo "============================================"
 echo " Done! To run your model:"
 echo "   source venv/bin/activate"
-echo "   python predict.py --source 0"
+echo "   python predict.py --camera usb --source 0"
 echo "============================================"
 `;
 const PY_REQS = `# TESR Web Trainer - Python inference (Python 3.10 - 3.12)
@@ -3470,9 +3470,9 @@ Run the installer in this folder - it creates a venv and installs 3 packages
 ## Step 3 - Run
 
     # Windows: venv\\Scripts\\activate     Linux: source venv/bin/activate
-    python predict.py --source 0            # live webcam, press q to quit
-    python predict.py --source my_photo.jpg # single image
-    python predict.py --source 0 --mode classify   # detection export, class-only run
+    python predict.py --camera usb --source 0            # live webcam, press q to quit
+    python predict.py --camera file --source my_photo.jpg # single image
+    python predict.py --camera usb --source 0 --mode classify   # detection export, class-only run
 
 Detection models draw the box, a crosshair at the object center, and print
 the center in pixels - ready to feed a robot arm or a conveyor PLC.
@@ -3532,8 +3532,8 @@ The "none" answer uses TWO gates:
      the classifier is overconfident.
 
 Install:  run install_windows.bat / install_linux.sh  (or see README_PYTHON.md)
-Run:      python predict.py --source 0          # live webcam, press q to quit
-          python predict.py --source photo.jpg  # single image
+Run:      python predict.py --camera usb --source 0          # live webcam, press q to quit
+          python predict.py --camera file --source photo.jpg  # single image
 """
 import argparse
 import json

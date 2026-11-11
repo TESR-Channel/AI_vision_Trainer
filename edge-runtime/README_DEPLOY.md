@@ -24,7 +24,7 @@ Result: `exports/tesr-model-<target>.zip` - copy it to the board (USB stick, or
 `scp exports/tesr-model-pi5.zip user@device-ip:~/`) and unzip it there.
 The model file is the same on every device; export only picks the right
 installer. Optional: `--camera csi` (default `usb`) writes the default camera
-into `config.json`; on the device `python predict.py --camera usb|csi` always
+into `config.json`; on the device `python predict.py --camera usb|csi --source 0` always
 overrides it.
 
 ## 2 - Install once
@@ -45,11 +45,11 @@ overrides it.
 
 ```bash
 source venv/bin/activate          # Windows: venv\Scripts\activate
-python predict.py                 # camera type + mode from config.json
-python predict.py --camera csi    # ribbon camera (Pi: Picamera2 / Jetson: nvarguscamerasrc)
+python predict.py --camera usb --source 0    # USB webcam 0 (other webcams: --source 1, 2)
+python predict.py --camera csi --source 0    # ribbon camera (Pi: Picamera2 / Jetson: nvarguscamerasrc)
 python predict.py --camera usb --source 1
-python predict.py --source photo.jpg
-python predict.py --headless      # over SSH: prints results + FPS, no window
+python predict.py --camera file --source photo.jpg
+python predict.py --camera usb --source 0 --headless   # over SSH: prints results + FPS, no window
 ```
 
 Detection modes (`--mode`, default from `config.json`):
