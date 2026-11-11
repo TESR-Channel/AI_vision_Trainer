@@ -21,6 +21,12 @@ production-grade YOLO on your PC and deploy it to a Raspberry Pi or NVIDIA Jetso
 Everything runs on WebGL/WebGPU in the page: capture from your webcam, upload
 files, auto-augment small datasets, train in seconds, test live, and export.
 
+**Just collecting photos?** No training needed: **📦 Photos only** downloads your
+photos as one folder per class (all classes or some), as plain JPGs plus a `project.json`
+with the boxes. It also adds photos back in from a zip, a folder of class folders or
+plain photo files, merging them into the current project. A single click on Capture
+saves one photo.
+
 ## Try it
 
 1. Open the page (Chrome/Edge recommended). The UI is **English by default;
@@ -126,6 +132,8 @@ and train it offline with YOLO — same photos, same labels, one command.
 7. QC สองขั้น (เช่น terminal → หัวน็อต): กด **✂ ตัดรูปตามกรอบ (Crop boxes)** ข้างปุ่ม Download Dataset
    เลือกคลาสที่จะตัด + ขอบเผื่อ (ค่าเริ่มต้น 10%) แล้ว **เริ่มโปรเจกต์ใหม่จากรูปที่ตัด** (บันทึกโปรเจกต์ 1 ก่อนได้ในคลิกเดียว)
    พิมพ์ชื่อคลาส เช่น `screw` กด **+ Add Class** แล้วลากกรอบหัวน็อตทุกตัว — หรือ **ดาวน์โหลดรูปที่ตัด (.zip)** เป็น JPG ล้วน
+8. แค่เก็บรูป ไม่เทรน: กด **📦 เฉพาะรูป** → ดาวน์โหลดรูปแยกโฟลเดอร์ตามคลาส (ทั้งหมดหรือเลือกบางคลาส)
+   หรือเพิ่มรูปจาก zip / โฟลเดอร์ที่แยกคลาส / ไฟล์รูป เข้าโปรเจกต์ (ไม่ลบของเดิม) · คลิกปุ่มถ่ายครั้งเดียว = 1 รูป
 
 คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`yolo-trainer/README.md`](yolo-trainer/README.md)
 

@@ -1,7 +1,19 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.3.0** (2026-11-11). Also shown on the web page (click the version badge).
+Current version: **v3.4.0** (2026-11-11). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.4.0 - 2026-11-11
+
+- 📦 Photos only: download photos sorted into one folder per class (all or some classes) - no training needed
+- Add photos from a zip / class folders / photo files into the current project (nothing replaced), with the recommended file types shown
+- One click on capture = one photo right away (hold = burst)
+- Warning before closing the tab if photos were not saved
+
+- ปุ่ม 📦 เฉพาะรูป: ดาวน์โหลดรูปแยกโฟลเดอร์ตามคลาส (ทั้งหมดหรือเลือกบางคลาส) โดยไม่ต้องเทรน
+- เพิ่มรูปจาก zip / โฟลเดอร์ที่แยกคลาส / ไฟล์รูป เข้าโปรเจกต์ที่มีอยู่ (ไม่ลบของเดิม) พร้อมบอกชนิดไฟล์ที่แนะนำ
+- คลิกปุ่มถ่ายครั้งเดียว = ได้ 1 รูปทันที (กดค้าง = ถ่ายต่อเนื่อง)
+- เตือนก่อนปิดแท็บ ถ้ามีรูปที่ยังไม่ได้บันทึก
 
 ## v3.3.0 - 2026-11-11
 

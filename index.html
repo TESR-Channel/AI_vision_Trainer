@@ -137,6 +137,11 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   font-size:12px;font-weight:500;background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold);
   cursor:pointer;line-height:1.6}
 .verbadge:hover{transform:none;box-shadow:none;background:var(--gold);color:#1a1815}
+.ph-cls{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0}
+.ph-cls label{font-size:13px;cursor:pointer;white-space:nowrap}
+.ph-drop{border:1.5px dashed var(--edge);border-radius:12px;padding:12px 14px;margin-top:10px}
+.ph-drop.over{border-color:var(--gold);background:var(--gold-soft)}
+.ph-ok{color:var(--muted);font-size:13px;line-height:1.6}
 .wn h4{font-weight:600;font-size:14px;margin:14px 0 4px;color:var(--gold)}
 .wn h4 small{color:var(--muted);font-weight:300;margin-left:6px}
 .wn ul{margin:0 0 0 18px;font-size:13.5px;color:var(--ink)}
@@ -203,6 +208,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <div class="row" style="margin-bottom:6px">
       <button class="quiet" onclick="document.getElementById('projFile').click()">&#128194; Load Project</button>
       <button class="quiet" onclick="saveProject()">&#128190; Save Project</button>
+      <button class="gold" id="btnPhotos" onclick="openPhotoDlg()"
+        title="Download / add photos sorted by class - no training needed">&#128230; Photos only (download / add)</button>
       <input type="file" id="projFile" accept=".zip" style="display:none"
              onchange="loadProject(this.files[0]); this.value='';">
       <span class="msg" id="projMsg" style="margin:0"></span>
@@ -246,6 +253,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <button class="gold" id="btnDs" onclick="exportDataset()">&#11015; Download Dataset (YOLO)</button>
           <label class="tag" style="cursor:pointer"><input type="checkbox" id="dsAug" checked>
             include &#10024; generated</label>
+          <button class="gold" id="btnPhotos2" onclick="openPhotoDlg()"
+            title="Download / add photos sorted by class - no training needed">&#128230; Photos only (download / add)</button>
           <button class="gold" id="btnCrop" onclick="openCropDlg()"
             title="Cut every box of one class out as new photos (two-stage QC)">&#9986; Crop boxes</button>
           <span class="msg" id="dsMsg" style="margin:0"></span>
@@ -463,6 +472,64 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   </div>
 </div>
 
+<div class="modal" id="photoModal" onclick="if(event.target===this)closePhotoDlg()">
+  <div class="mbox" style="max-width:640px;max-height:92vh;overflow:auto">
+    <h3 id="phTitle">&#128230; Photos only &mdash; no training needed</h3>
+    <p class="sub" id="phSub">Just collecting raw data? Plug in a camera, click / hold capture per class,
+      then download the photos sorted by class. Or add photos you already have. Train later &mdash; or never.</p>
+
+    <h4 style="font-weight:600;font-size:14px;margin:6px 0 2px" id="phDownH">&#11015; Download</h4>
+    <div class="row" style="gap:8px">
+      <span class="tag" id="phPickLbl">Classes:</span>
+      <button class="quiet" style="padding:3px 10px;font-size:12px" onclick="phPickAll(true)" id="phAll">All</button>
+      <button class="quiet" style="padding:3px 10px;font-size:12px" onclick="phPickAll(false)" id="phNone">None</button>
+    </div>
+    <div class="ph-cls" id="phCls"></div>
+    <div id="phAugRow"><label class="tag" style="cursor:pointer"><input type="checkbox" id="phAug">
+      <span id="phAugLbl">include &#10024; generated photos</span></label></div>
+    <div class="row" style="margin-top:10px">
+      <button class="gold" id="phDownBtn" onclick="downloadPhotos()">&#11015; Download selected (.zip)</button>
+      <span class="msg" id="phDownMsg" style="margin:0"></span>
+    </div>
+    <div class="hint" id="phDownHint">Zip = <code>apple/</code> <code>orange/</code> &hellip; one folder per class
+      (plain JPG) + <code>project.json</code> (classes + boxes). Works in other tools that read one folder per
+      class (Keras, PyTorch ImageFolder), and opens again here with <b>Add photos</b> or <b>Load Project</b>.</div>
+
+    <h4 style="font-weight:600;font-size:14px;margin:16px 0 2px" id="phUpH">&#11014; Add photos</h4>
+    <div class="ph-drop" id="phDrop">
+      <div class="ph-ok" id="phTypes">
+        <b>Recommended:</b><br>
+        &#9989; <code>.zip</code> from <b>Download selected</b> above, Save Project, Download Model or Download
+        Dataset &mdash; classes and boxes come back<br>
+        &#9989; a <b>folder</b> with one sub-folder per class: <code>apple/</code> <code>orange/</code> &mdash;
+        the folder name becomes the class (A-Z, 0-9, _ ; other letters become _)<br>
+        &#9989; photos <code>.jpg .jpeg .png .webp .bmp</code><br>
+        &#10060; not read: video, HEIC (iPhone: share as JPG), PDF; labels of YOLO datasets from other tools
+      </div>
+      <div class="row" style="margin-top:10px;align-items:center">
+        <span class="tag" id="phLooseLbl">Photos not in a class folder go to:</span>
+        <select id="phLoose" style="width:200px"></select>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="gold" style="border:1.5px solid var(--gold);color:var(--gold);border-radius:10px;
+          padding:7px 14px;cursor:pointer;font-size:13px"><span id="phFilesBtn">&#128196; Choose files / .zip</span>
+          <input type="file" multiple accept=".zip,.jpg,.jpeg,.png,.webp,.bmp" hidden
+            onchange="importPhotos([...this.files], document.getElementById('phLoose').value); this.value='';"></label>
+        <label class="gold" style="border:1.5px solid var(--gold);color:var(--gold);border-radius:10px;
+          padding:7px 14px;cursor:pointer;font-size:13px"><span id="phFolderBtn">&#128193; Choose folder</span>
+          <input type="file" webkitdirectory directory multiple hidden
+            onchange="importPhotos([...this.files], document.getElementById('phLoose').value); this.value='';"></label>
+        <span class="tag" id="phDropLbl">or drop files here</span>
+      </div>
+      <div class="hint" id="phMergeHint">Adds to what is already here &mdash; nothing is replaced. Same class name
+        = added into that class. Photos already in the project are skipped. (Load Project instead
+        <b>replaces</b> everything.)</div>
+    </div>
+    <div class="msg" id="phMsg"></div>
+    <div class="row" style="margin-top:12px"><button class="quiet" id="phClose" onclick="closePhotoDlg()">Close</button></div>
+  </div>
+</div>
+
 <script>
 /* ============ version ============ */
 const APP = window.TESR_APP || {name: 'TESR AI Vision Web Trainer', version: '?', date: '', history: []};
@@ -504,7 +571,10 @@ const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSu
                   'trainSub','testSub','gatesHint','detHint','expNote','lblSub','lblMulti','projNote',
                   'multiHint','onnxHint',
                   'btnCrop','cropTitle','cropSub','cropClsLbl','cropPadLbl','cropPadHint','cropNewBtn',
-                  'cropZipBtn','cropCloseBtn','cropWarn','cropSaveStart','cropNoSave','cropBack'];
+                  'cropZipBtn','cropCloseBtn','cropWarn','cropSaveStart','cropNoSave','cropBack',
+                  'btnPhotos','btnPhotos2','phTitle','phSub','phDownH','phPickLbl','phAll','phNone','phAugLbl','phDownBtn',
+                  'phDownHint','phUpH','phTypes','phLooseLbl','phFilesBtn','phFolderBtn','phDropLbl',
+                  'phMergeHint','phClose'];
 function applyLang(){
   const TH = window.TH || {};
   document.getElementById('langBtn').textContent =
@@ -517,6 +587,7 @@ function applyLang(){
   }
   setTask(task);   // refreshes the task-dependent texts + readiness in the chosen language
   if (document.getElementById('cropModal').classList.contains('open')) cropUpdate();
+  if (document.getElementById('photoModal').classList.contains('open')) openPhotoDlg();
 }
 function toggleLang(){
   LANG = LANG === 'th' ? 'en' : 'th';
@@ -731,7 +802,7 @@ function renderClasses(){
         ${countChip(c)}
         <label class="gold" style="border:1.5px solid var(--gold);color:var(--gold);
           border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px">
-          Upload files<input type="file" multiple accept="image/*" hidden
+          Upload files<input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.bmp" hidden
             onchange="uploadTo('${c.name}', this.files)"></label>
         <button class="quiet" style="padding:7px 14px;font-size:13px"
           onclick="removeClass('${c.name}')">Remove class</button>
@@ -847,13 +918,17 @@ const holdBtn = document.getElementById('holdBtn');
 function startBurst(e){
   e.preventDefault();
   if (!net || !camOK || !capClass) return;
+  if (capTimer) return;
   const cls = capClass;
   const video = document.getElementById('cam');
-  capTimer = setInterval(async () => {
+  const shot = async () => {
+    if (!classes.find(x => x.name === cls)) return;
     await addExample(cls, video, snapThumb(video));
     document.getElementById('capMsg').textContent =
       `${classes.find(x=>x.name===cls).examples.length} photos of "${cls}"`;
-  }, 160);
+  };
+  shot();                                   // one click = one photo now; holding keeps capturing
+  capTimer = setInterval(shot, 160);
 }
 function stopBurst(){ if (capTimer){ clearInterval(capTimer); capTimer = null; } }
 holdBtn.addEventListener('mousedown', startBurst);
@@ -863,11 +938,8 @@ for (const ev of ['mouseup','mouseleave','touchend']) {
   document.addEventListener(ev, stopBurst);
 }
 async function uploadTo(clsName, files){
-  for (const f of files){
-    const img = new Image();
-    await new Promise(res => { img.onload = res; img.src = URL.createObjectURL(f); });
-    await addExample(clsName, img, img.src);
-  }
+  // photos picked for ONE class (zip / folder imports: Photos only -> Add photos)
+  await importPhotos([...files], clsName, true);
 }
 
 /* ============ labeling (detection task) ============ */
@@ -1232,19 +1304,8 @@ async function loadProject(file){
     const total = meta.classes.reduce((n,c)=>n + c.examples.length, 0) + metaPend.length;
     let done = 0;
     const loadEx = async ex => {
-      const zf = zip.file(base + ex.file);
-      if (!zf) return null;
-      const src = 'data:image/jpeg;base64,' + await zf.async('base64');
-      const img = new Image();
-      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
-      const cv2 = document.createElement('canvas');
-      cv2.width = 224; cv2.height = 224;
-      cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
-      const f = embed(cv2);
-      const e = setBoxes({feat: await f.array(), thumb: shrink(cv2), src,
-                          w: ex.w || img.width, h: ex.h || img.height},
-                          (ex.boxes && ex.boxes.length) ? ex.boxes : (ex.box ? [ex.box] : []));
-      f.dispose();
+      const e = await exFromZip(zip, base, ex);
+      if (!e) return null;
       done++;
       if (done % 5 === 0){ m.textContent = 'Loading... ' + done + '/' + total; await tf.nextFrame(); }
       return e;
@@ -1271,6 +1332,278 @@ async function loadProject(file){
       + ' classes \u2014 add a new class if you want, then press Train.';
   }catch(err){ m.textContent = 'Load failed: ' + err.message; }
 }
+
+/* one example of a project.json from a zip (photo + boxes), or null if the file is missing / broken */
+async function exFromZip(zip, base, ex, have){
+  const zf = zip.file(base + ex.file);
+  if (!zf) return null;
+  const src = 'data:image/jpeg;base64,' + await zf.async('base64');
+  if (have && have.has(src)) return 'dup';
+  const img = new Image();
+  const ok = await new Promise(res => { img.onload = () => res(true); img.onerror = () => res(false); img.src = src; });
+  if (!ok) return null;
+  const cv2 = document.createElement('canvas');
+  cv2.width = 224; cv2.height = 224;
+  cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
+  const f = embed(cv2);
+  const e = setBoxes({feat: await f.array(), thumb: shrink(cv2), src,
+                      w: ex.w || img.width, h: ex.h || img.height, aug: !!ex.aug},
+                      (ex.boxes && ex.boxes.length) ? ex.boxes : (ex.box ? [ex.box] : []));
+  f.dispose();
+  return e;
+}
+
+/* ============ photos only: download / add - no training needed ============
+   Download: one folder per class (plain JPGs, ready for any other tool) + project.json next to
+   them, so the same zip also opens with Load Project / Add photos, boxes included.
+   Add: merges into what is already here (nothing is replaced) - TESR zips keep their boxes,
+   class folders become classes, loose photos go to the class picked in the dialog. */
+const PHOTO_EXT = /\.(jpe?g|png|webp|bmp)$/i;
+function safeClsName(s, fb){
+  const n = String(s || '').trim().replace(/[^A-Za-z0-9_\-]/g, '_');
+  return /[A-Za-z0-9]/.test(n) ? n : fb;
+}
+function fileStamp(){
+  const d = new Date(), p = x => String(x).padStart(2, '0');
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+}
+function photoTxt(en, th){ return t(en, th); }
+function openPhotoDlg(){
+  const real = c => c.examples.filter(e => !e.aug).length;
+  const nAug = classes.reduce((n, c) => n + c.examples.filter(e => e.aug).length, 0);
+  document.getElementById('phCls').innerHTML = classes.length
+    ? classes.map(c => `<label><input type="checkbox" class="phPick" value="${c.name}" checked>
+        <b>${c.name}</b> <span class="tag">${real(c)}</span></label>`).join('')
+    : `<span class="tag">${photoTxt('No photos yet — add a class and capture first.',
+        'ยังไม่มีรูป — เพิ่มคลาสแล้วถ่ายรูปก่อน')}</span>`;
+  document.getElementById('phAugRow').style.display = nAug ? '' : 'none';
+  const sel = document.getElementById('phLoose');
+  const keep = sel.value;
+  sel.innerHTML = classes.map(c => `<option value="${c.name}">${c.name}</option>`).join('')
+    + `<option value="__new__">${photoTxt('+ new class: imported', '+ คลาสใหม่: imported')}</option>`;
+  sel.value = classes.find(c => c.name === keep) ? keep : (capClass || (classes[0] ? classes[0].name : '__new__'));
+  document.getElementById('phDownMsg').textContent = '';
+  document.getElementById('phMsg').textContent = '';
+  document.getElementById('photoModal').classList.add('open');
+}
+function closePhotoDlg(){ document.getElementById('photoModal').classList.remove('open'); }
+function phPickAll(on){ document.querySelectorAll('.phPick').forEach(b => b.checked = on); }
+
+function writePhotoFolders(zip, root, names, withAug){
+  const meta = {app: 'tesr-ai-vision', version: 1, trainer_version: APP.version, task, classes: [],
+                layout: 'class-folders'};
+  const counts = [];
+  let n = 0;
+  classes.forEach(c => {
+    if (!names.includes(c.name)) return;
+    const mc = {name: c.name, examples: []};
+    let k = 0;
+    c.examples.forEach(e => {
+      if (e.aug && !withAug) return;
+      const f = c.name + '/' + cropBaseName(c.name, ++k) + (e.aug ? '_aug' : '') + '.jpg';
+      zip.file(root + f, e.src.split(',')[1], {base64: true});
+      const bs = boxesOf(e);
+      mc.examples.push({file: f, box: bs[0] || null, boxes: bs.length ? bs : null, w: e.w, h: e.h,
+                        aug: e.aug ? true : undefined});
+    });
+    n += k;
+    counts.push(c.name + ': ' + k);
+    meta.classes.push(mc);
+  });
+  if (pending.length && names.length === classes.length){
+    meta.pending_from = pendingFrom;
+    meta.pending = pending.map((e, i) => {
+      const f = '_waiting_for_class/' + cropBaseName('photo', i + 1) + '.jpg';
+      zip.file(root + f, e.src.split(',')[1], {base64: true});
+      n++;
+      return {file: f, w: e.w, h: e.h};
+    });
+    counts.push('_waiting_for_class: ' + pending.length);
+  }
+  zip.file(root + 'project.json', JSON.stringify(meta));
+  zip.file(root + 'README.txt', [
+    'TESR AI Vision Web Trainer v' + APP.version + ' - photos (' + new Date().toISOString().slice(0, 10) + ')',
+    '',
+    'One folder per class, plain JPG photos as captured / uploaded:',
+    ...counts.map(x => '  ' + x),
+    '',
+    'project.json = the class + box information. Keep it next to the folders and this zip opens',
+    'again on the web page: "Photos only" -> Add photos (adds) or Load Project (replaces).',
+    '',
+    'Use the folders anywhere that reads "one folder per class", e.g.',
+    '  Keras  tf.keras.utils.image_dataset_from_directory("tesr-photos")',
+    '  PyTorch torchvision.datasets.ImageFolder("tesr-photos")',
+    '(project.json and README.txt are not photos - other tools ignore them or you can delete them)',
+    'Need boxes in YOLO format? Web page -> Download Dataset (YOLO).',
+    '',
+    'รูปแยกโฟลเดอร์ตามคลาส (JPG) - project.json เก็บคลาสและกรอบ เก็บไว้คู่กันแล้ว zip นี้',
+    'เปิดกลับในหน้าเว็บได้: "Photos only" -> Add photos (เพิ่มเข้า) หรือ Load Project (แทนที่)',
+  ].join('\r\n'));
+  return n;
+}
+async function downloadPhotos(){
+  const m = document.getElementById('phDownMsg');
+  const names = [...document.querySelectorAll('.phPick')].filter(b => b.checked).map(b => b.value);
+  const withAug = document.getElementById('phAug').checked;
+  const has = classes.some(c => names.includes(c.name) && c.examples.some(e => withAug || !e.aug));
+  if (!names.length || !has){
+    m.textContent = photoTxt('Pick at least one class that has photos.', 'เลือกอย่างน้อย 1 คลาสที่มีรูป');
+    return;
+  }
+  m.textContent = photoTxt('Building zip...', 'กำลังสร้าง zip...');
+  try{
+    const zip = new JSZip();
+    const n = writePhotoFolders(zip, 'tesr-photos/', names, withAug);
+    const blob = await zip.generateAsync({type: 'blob'});
+    const name = 'tesr-photos-' + fileStamp() + '.zip';
+    download(blob, name);
+    if (names.length === classes.length) savedSig = projSig();
+    m.textContent = photoTxt(`✅ ${n} photos in ${names.length} class folders → ${name}`,
+                             `✅ ${n} รูป ใน ${names.length} โฟลเดอร์คลาส → ${name}`);
+  }catch(err){ m.textContent = 'Download failed: ' + err.message; }
+}
+
+/* decode a photo file -> example (null if the browser cannot read it, e.g. HEIC) */
+function loadImgBlob(blob){
+  return new Promise(res => {
+    const u = URL.createObjectURL(blob), img = new Image();
+    img.onload = () => res({img, u});
+    img.onerror = () => { URL.revokeObjectURL(u); res(null); };
+    img.src = u;
+  });
+}
+async function exFromBlob(blob, have){
+  const r = await loadImgBlob(blob);
+  if (!r) return null;
+  const s224 = makeSrc(r.img);
+  const disp = makeDisp(r.img);
+  URL.revokeObjectURL(r.u);
+  const src = disp.toDataURL('image/jpeg', .85);
+  if (have && have.has(src)) return 'dup';
+  const f = embed(s224);
+  const feat = await f.array();
+  f.dispose();
+  return {feat, thumb: shrink(s224), src, w: disp.width, h: disp.height, aug: false, box: null, boxes: null};
+}
+function parentDir(path){
+  const parts = path.split('/').filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : '';
+}
+/* files: File[] (photos, .zip, or a folder's files with webkitRelativePath).
+   looseTo: class for photos that are not inside a class folder. forceCls: everything -> that class. */
+async function importPhotos(files, looseTo, forceCls){
+  const m = document.getElementById(forceCls ? 'projMsg' : 'phMsg');
+  if (!net){ m.textContent = photoTxt('Backbone still loading — wait a moment, then try again.',
+                                      'โมเดลพื้นฐานยังโหลดไม่เสร็จ — รอสักครู่แล้วลองใหม่'); return; }
+  if (!files.length) return;
+  const have = new Set();
+  classes.forEach(c => c.examples.forEach(e => have.add(e.src)));
+  pending.forEach(e => have.add(e.src));
+  const added = {}, made = [], bad = [];
+  let dup = 0, done = 0, yoloNote = false;
+  const startEmpty = !classes.length && !pending.length;
+  const ensure = name => {
+    let c = classes.find(x => x.name === name);
+    if (!c){ c = {name, examples: []}; classes.push(c); made.push(name); }
+    return c;
+  };
+  const put = async (clsName, e) => {
+    if (e === 'dup'){ dup++; return; }
+    if (!e) return;
+    have.add(e.src);
+    ensure(clsName).examples.push(e);
+    added[clsName] = (added[clsName] || 0) + 1;
+    if (++done % 5 === 0){
+      m.textContent = photoTxt('Adding photos... ' + done, 'กำลังเพิ่มรูป... ' + done);
+      await tf.nextFrame();
+    }
+  };
+  const loose = looseTo === '__new__' || !looseTo ? 'imported' : looseTo;
+
+  // a folder pick (or several files with paths) -> one virtual zip, so project.json inside is honoured
+  const withPath = files.filter(f => f.webkitRelativePath);
+  const zips = [], singles = [];
+  if (withPath.length){
+    const vz = new JSZip();
+    withPath.forEach(f => vz.file(f.webkitRelativePath, f));
+    zips.push({zip: vz, name: (withPath[0].webkitRelativePath.split('/')[0] || 'folder')});
+  }
+  for (const f of files){
+    if (f.webkitRelativePath) continue;
+    if (/\.zip$/i.test(f.name)){
+      try{ zips.push({zip: await JSZip.loadAsync(f), name: f.name}); }
+      catch(e){ bad.push(f.name + ' (zip)'); }
+    } else if (PHOTO_EXT.test(f.name)) singles.push(f);
+    else bad.push(f.name);
+  }
+  try{
+    for (const f of singles){
+      const e = await exFromBlob(f, have);
+      if (!e) bad.push(f.name);
+      await put(forceCls ? looseTo : loose, e);
+    }
+    for (const {zip, name} of zips){
+      const keys = Object.keys(zip.files).filter(k => !zip.files[k].dir && !/(^|\/)(__MACOSX\/|\.)/.test(k));
+      const pjName = keys.filter(k => /(^|\/)project\.json$/.test(k)).sort((a, b) => a.length - b.length)[0];
+      if (pjName){                                  // TESR zip: classes + boxes from project.json
+        const base = pjName.slice(0, pjName.length - 'project.json'.length);
+        const meta = JSON.parse(await zip.file(pjName).async('string'));
+        if (startEmpty && meta.task && meta.task !== task) setTask(meta.task);
+        for (const mc of (meta.classes || [])){
+          const cn = forceCls ? looseTo : safeClsName(mc.name, loose);
+          for (const ex of (mc.examples || [])){
+            const e = await exFromZip(zip, base, ex, have);
+            if (!e) bad.push(ex.file);
+            await put(cn, e);
+          }
+        }
+        for (const ex of (Array.isArray(meta.pending) ? meta.pending : [])){
+          const e = await exFromZip(zip, base, ex, have);
+          if (e && e !== 'dup'){ have.add(e.src); pending.push(e); pendingFrom = meta.pending_from || pendingFrom; done++; }
+          else if (e === 'dup') dup++;
+        }
+        continue;
+      }
+      // plain photos: the folder a photo sits in = its class
+      const isYolo = keys.some(k => /(^|\/)data\.yaml$/.test(k) || /(^|\/)labels\/.+\.txt$/.test(k));
+      if (isYolo) yoloNote = true;
+      for (const k of keys){
+        if (!PHOTO_EXT.test(k)){ if (!/\.(txt|yaml|yml|json|md|csv)$/i.test(k)) bad.push(k); continue; }
+        const dir = parentDir(k);
+        const cn = forceCls ? looseTo
+          : (isYolo || !dir || /^(images?|train|val|valid|test)$/i.test(dir)) ? loose : safeClsName(dir, loose);
+        const e = await exFromBlob(await zip.file(k).async('blob'), have);
+        if (!e) bad.push(k);
+        await put(cn, e);
+      }
+    }
+  }catch(err){ bad.push(err.message); }
+  renderClasses();
+  if (!forceCls) openPhotoDlg();
+  const parts = Object.keys(added).map(k => k + ' +' + added[k] + (made.includes(k) ? photoTxt(' (new)', ' (ใหม่)') : ''));
+  let txt = done
+    ? photoTxt(`✅ Added ${done} photos — `, `✅ เพิ่ม ${done} รูป — `) + parts.join(', ')
+    : photoTxt('No photos added.', 'ไม่ได้เพิ่มรูป');
+  if (dup) txt += photoTxt(` · ${dup} already here (skipped)`, ` · ข้าม ${dup} รูปที่มีอยู่แล้ว`);
+  if (bad.length) txt += photoTxt(` · ${bad.length} not read: `, ` · อ่านไม่ได้ ${bad.length} ไฟล์: `)
+    + bad.slice(0, 4).join(', ') + (bad.length > 4 ? ' …' : '');
+  if (yoloNote) txt += photoTxt(' · YOLO dataset from another tool: photos added, its labels were not read',
+                                ' · dataset YOLO จากเครื่องมืออื่น: เพิ่มเฉพาะรูป ไม่ได้อ่าน label');
+  if (task === 'detect' && done) txt += photoTxt(' · photos without boxes have a red border — label them before training (not needed just to collect).',
+    ' · รูปที่ยังไม่มีกรอบขึ้นขอบแดง — ลากกรอบก่อนเทรน (ถ้าแค่เก็บรูปไม่ต้อง)');
+  document.getElementById(forceCls ? 'projMsg' : 'phMsg').textContent = txt;
+}
+function phDropInit(){
+  const z = document.getElementById('phDrop');
+  ['dragenter', 'dragover'].forEach(ev => z.addEventListener(ev, e => { e.preventDefault(); z.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => z.addEventListener(ev, e => { e.preventDefault(); z.classList.remove('over'); }));
+  z.addEventListener('drop', e => importPhotos([...e.dataTransfer.files], document.getElementById('phLoose').value));
+}
+/* closing the tab loses photos that were never saved */
+window.addEventListener('beforeunload', e => {
+  const real = classes.reduce((n, c) => n + c.examples.filter(x => !x.aug).length, 0) + pending.length;
+  if (real && savedSig !== projSig()){ e.preventDefault(); e.returnValue = ''; }
+});
 
 /* ============ crop boxes (two-stage QC) ============
    AI #1 finds the whole part (e.g. `terminal`), AI #2 finds the small things inside it
@@ -3304,7 +3637,7 @@ async function addLegacyTF(zip, dir){
   zip.file(dir + 'install_linux.sh', PY_SH);
 }
 
-checkHW(); syncTargetUI(true); applyLang(); renderVersion();
+checkHW(); syncTargetUI(true); applyLang(); renderVersion(); phDropInit();
 </script>
 </body>
 </html>

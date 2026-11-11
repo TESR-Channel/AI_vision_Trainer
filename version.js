@@ -12,9 +12,25 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "date": "2026-11-11",
   "history": [
+    {
+      "v": "3.4.0",
+      "date": "2026-11-11",
+      "th": [
+        "ปุ่ม 📦 เฉพาะรูป: ดาวน์โหลดรูปแยกโฟลเดอร์ตามคลาส (ทั้งหมดหรือเลือกบางคลาส) โดยไม่ต้องเทรน",
+        "เพิ่มรูปจาก zip / โฟลเดอร์ที่แยกคลาส / ไฟล์รูป เข้าโปรเจกต์ที่มีอยู่ (ไม่ลบของเดิม) พร้อมบอกชนิดไฟล์ที่แนะนำ",
+        "คลิกปุ่มถ่ายครั้งเดียว = ได้ 1 รูปทันที (กดค้าง = ถ่ายต่อเนื่อง)",
+        "เตือนก่อนปิดแท็บ ถ้ามีรูปที่ยังไม่ได้บันทึก"
+      ],
+      "en": [
+        "📦 Photos only: download photos sorted into one folder per class (all or some classes) - no training needed",
+        "Add photos from a zip / class folders / photo files into the current project (nothing replaced), with the recommended file types shown",
+        "One click on capture = one photo right away (hold = burst)",
+        "Warning before closing the tab if photos were not saved"
+      ]
+    },
     {
       "v": "3.3.0",
       "date": "2026-11-11",
