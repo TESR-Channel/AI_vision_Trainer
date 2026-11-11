@@ -1,7 +1,19 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.5.0** (2026-11-11). Also shown on the web page (click the version badge).
+Current version: **v3.5.1** (2026-11-11). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.5.1 - 2026-11-11
+
+- ✂ Crop boxes: with no boxes yet it says which class has how many photos, what to do, and offers ✏ Draw boxes now
+- Classes split into ok / ng get a tip to use ONE class named after the object (AI #1 only finds it), with a merge button
+- The class list shows boxes / photos and picks the class with the most boxes
+- Start a new project from crops keeps the Background photos (untick to drop) - AI #2 can train on the web straight away
+
+- ✂ ตัดรูปตามกรอบ: ถ้ายังไม่มีกรอบ บอกชัดว่าคลาสไหนมีกี่รูป ต้องทำอะไร และมีปุ่ม ✏ ไปตีกรอบเลย
+- ถ้าแยกคลาส ok / ng ไว้ แนะนำให้รวมเป็นคลาสเดียวตามชื่อชิ้นงาน (AI #1 แค่หาชิ้นงาน) และมีปุ่มรวมคลาสให้
+- รายการคลาสบอกจำนวนกรอบ / รูป เลือกคลาสที่มีกรอบมากที่สุดให้เอง
+- เริ่มโปรเจกต์ใหม่จากรูปที่ตัด: เอารูป Background ไปด้วย (ติ๊กออกได้) — AI #2 เทรนบนเว็บได้ทันที
 
 ## v3.5.0 - 2026-11-11
 

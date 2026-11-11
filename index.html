@@ -460,6 +460,9 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       (10% = 20% wider), never past the photo edge. Rotated boxes use their upright extent.
       Generated &#10024; photos are not cut.</div>
     <div class="note" id="cropCount"></div>
+    <label class="hint" id="cropBgRow" style="display:block;margin-top:8px;cursor:pointer">
+      <input type="checkbox" id="cropBg" checked> <span id="cropBgLbl">Bring the <b>Background</b> photos into the new project too
+      (AI #2 needs a Background class to train on the web)</span></label>
     <div id="cropStep1" class="row" style="margin-top:14px">
       <button id="cropNewBtn" onclick="cropAskNew()">&#9654; Start a new project from these crops</button>
       <button class="gold" id="cropZipBtn" onclick="cropDownload()">&#11015; Download crops (.zip)</button>
@@ -577,7 +580,7 @@ function T(key, ...args){ const v = window.TH && window.TH[key]; return typeof v
 const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSub','augHint',
                   'trainSub','testSub','gatesHint','detHint','expNote','lblSub','lblMulti','projNote',
                   'multiHint','onnxHint',
-                  'btnCrop','cropTitle','cropSub','cropClsLbl','cropPadLbl','cropPadHint','cropNewBtn',
+                  'btnCrop','cropTitle','cropSub','cropClsLbl','cropPadLbl','cropPadHint','cropNewBtn','cropBgLbl',
                   'cropZipBtn','cropCloseBtn','cropWarn','cropSaveStart','cropNoSave','cropBack',
                   'btnPhotos','btnPhotos2','phTitle','phSub','phDownH','phPickLbl','phAll','phNone','phAugLbl','phDownBtn',
                   'phDownHint','phUpH','phTypes','phLooseLbl','phFilesBtn','phFolderBtn','phDropLbl',
@@ -1619,9 +1622,9 @@ window.addEventListener('beforeunload', e => {
    Source = e.src, the best copy the page keeps (captured / uploaded photos: 640 px on the
    long side; photos from a project zip: the size stored in that zip). */
 const CROP_Q = 0.92;
-function cropClasses(){
+function cropClasses(){            // every object class with photos - one without boxes still shows, with "0 boxes"
   return task === 'detect'
-    ? classes.filter(c => !bgCls(c) && c.examples.some(e => !e.aug && hasBox(e))) : [];
+    ? classes.filter(c => !bgCls(c) && c.examples.some(e => !e.aug)) : [];
 }
 function cropSources(name){        // [{e, i}] real (not ✨) photos of the class with at least one box
   const c = classes.find(x => x.name === name);
@@ -1695,8 +1698,14 @@ function openCropDlg(){
   const sel = document.getElementById('cropCls');
   const cs = cropClasses();
   const keep = sel.value;
-  sel.innerHTML = cs.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-  if (cs.find(c => c.name === keep)) sel.value = keep;
+  const nb = c => c.examples.filter(e => !e.aug).reduce((s, e) => s + boxesOf(e).length, 0);
+  sel.innerHTML = cs.map(c => `<option value="${c.name}">${c.name} &mdash; ${nb(c)} ${t('boxes', 'กรอบ')} / `
+    + `${c.examples.filter(e => !e.aug).length} ${t('photos', 'รูป')}</option>`).join('');
+  const best = cs.slice().sort((a, b) => nb(b) - nb(a))[0];
+  if (cs.find(c => c.name === keep) && nb(cs.find(c => c.name === keep))) sel.value = keep;
+  else if (best) sel.value = best.name;
+  const bg = classes.find(c => bgCls(c));
+  document.getElementById('cropBgRow').style.display = bg && bg.examples.length ? '' : 'none';
   document.getElementById('cropMsg').textContent = '';
   cropShowStep(1);
   cropUpdate();
@@ -1708,7 +1717,31 @@ function cropUpdate(){
   const c = cropCount();
   cropBusy(false);
   if (!c.n){
-    el.innerHTML = t('No boxes to cut yet — draw boxes on your photos first (detection task).', T('cropNone'));
+    const objs = classes.filter(x => !bgCls(x) && x.examples.length);
+    const many = objs.length > 1;
+    const okng = objs.some(x => /^(ok|ng|good|bad|pass|fail|nok|defect)$/i.test(x.name));
+    const cc = classes.find(x => x.name === c.name);
+    c.photos = cc ? cc.examples.filter(e => !e.aug).length : 0;     // photos of the class, boxed or not
+    el.innerHTML = (c.photos
+      ? t(`<b>${c.name}</b> has ${c.photos} photos but no boxes yet. ✂ cuts out the boxes you drew, so first:
+           click a red-border photo (or <b>Label photos</b>), drag <b>one box around the whole object</b>,
+           <b>Enter</b> = next photo.`,
+          `<b>${c.name}</b> มี ${c.photos} รูป แต่ยังไม่มีกรอบ ✂ ตัดตามกรอบที่คุณลาก ต้องตีกรอบก่อน:
+           คลิกรูปขอบแดง (หรือปุ่ม <b>Label photos</b>) → ลาก <b>กรอบเดียวรอบชิ้นงานทั้งตัว</b> →
+           <b>Enter</b> = รูปถัดไป`)
+      : t('No boxes to cut yet — draw boxes on your photos first (detection task).', T('cropNone')))
+      + (many || okng ? '<div class="msg" style="margin:10px 0 0">' + t(
+          `<b>Two-stage QC tip:</b> AI #1 only finds <i>where the object is</i>, so OK and NG photos go in
+           <b>one class named after the object</b> (e.g. <b>ssr</b>, <b>terminal</b>). OK / NG is decided later,
+           by counting the parts inside, in ROI Studio.`,
+          `<b>QC สองชั้น:</b> AI #1 แค่หา <i>ว่าชิ้นงานอยู่ไหน</i> รูป OK และ NG จึงอยู่ <b>คลาสเดียว
+           ตั้งชื่อตามชิ้นงาน</b> (เช่น <b>ssr</b>, <b>terminal</b>) — OK / NG ตัดสินทีหลังด้วยการนับชิ้นส่วนใน ROI Studio`)
+        + (many ? `<div class="row" style="margin-top:8px;align-items:center">
+             <input id="cropMergeName" value="${okng ? 'part' : objs[0].name}" style="width:140px">
+             <button class="gold" onclick="cropMerge()">${t(`Put all ${objs.length} classes into this one`,
+               `รวม ${objs.length} คลาสเป็นคลาสนี้`)}</button></div>` : '') + '</div>' : '')
+      + (c.photos ? `<div class="row" style="margin-top:10px"><button onclick="cropLabelNow()">&#9998; `
+          + t('Draw boxes now', 'ไปตีกรอบเลย') + '</button></div>' : '');
     return;
   }
   const px = s => s[0] + '×' + s[1];
@@ -1716,6 +1749,25 @@ function cropUpdate(){
   el.innerHTML = t(`<b>${c.n} crops</b> will be made from ${c.photos} photos of <b>${c.name}</b> `
       + `(source photos ${c.sizes.join(', ')} px, crops about ${range} px).`,
       T('cropCount', c.n, c.photos, c.name, c.sizes.join(', '), range));
+}
+function cropLabelNow(){            // close the dialog and open the first unlabeled photo of the chosen class
+  const c = classes.find(x => x.name === document.getElementById('cropCls').value);
+  closeCropDlg();
+  const i = c ? c.examples.findIndex(e => !hasBox(e)) : -1;
+  if (i >= 0) openLbl(c.name, i); else openNextUnlabeled();
+}
+function cropMerge(){                // ok + ng (or any object classes) -> ONE class named after the object
+  const name = (document.getElementById('cropMergeName').value || '').trim().replace(/[^A-Za-z0-9_\-]/g, '_');
+  if (!name || TESR_ONNX.isBackground(name)) return;
+  const objs = classes.filter(c => !bgCls(c));
+  const all = objs.flatMap(c => c.examples);
+  const keep = classes.filter(c => bgCls(c));
+  classes = [{name, examples: all}, ...keep];
+  capClass = name;
+  renderClasses();
+  openCropDlg();
+  document.getElementById('cropMsg').innerHTML = t(`✅ ${all.length} photos are now in <b>${name}</b>.`,
+    `✅ ${all.length} รูปอยู่ในคลาส <b>${name}</b> แล้ว`);
 }
 async function cropDownload(){
   const m = document.getElementById('cropMsg');
@@ -1786,15 +1838,20 @@ async function cropStartNew(save){
         return;
       }
     }
+    // the Background photos (empty table, hands...) come along: web training needs 2 classes
+    const bgKeep = document.getElementById('cropBg').checked
+      ? classes.filter(c => bgCls(c) && c.examples.length)
+               .map(c => ({name: c.name, examples: c.examples.filter(e => !e.aug)})) : [];
     resetTrained();
     if (task !== 'detect') setTask('detect');
-    classes = []; capClass = null;
+    classes = bgKeep; capClass = null;
     pending = exs; pendingFrom = name; savedSig = null;
     closeCropDlg();
     renderClasses();
     document.getElementById('projMsg').innerHTML = t(
       `✂ New project: ${exs.length} crops of <b>${name}</b>`
       + (savedAs ? ` (project 1 saved as <b>${savedAs}</b>)` : '')
+      + (bgKeep.length ? `, Background photos kept (${bgKeep[0].examples.length})` : '')
       + ` — type the part class name below, e.g. <b>screw</b>, and press <b>+ Add Class</b>.`,
       T('cropNewDone', exs.length, name, savedAs));
     document.getElementById('clsCard').scrollIntoView({behavior: 'smooth', block: 'start'});
