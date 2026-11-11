@@ -78,7 +78,7 @@ window.TH = {
   dsDone: function(zipName, n, nAug, name){
     return 'ดาวน์โหลด <b>' + zipName + '</b> แล้ว: ' + n + ' รูป (จริง ' + (n - nAug) + ' + สร้าง ✨ ' + nAug + ' → train เท่านั้น)'
       + ' — แตก zip แล้วดับเบิลคลิก <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>)'
-      + ' → ได้ <b>' + name + '.onnx</b> ไปใส่ ROI Studio';
+      + ' → ได้ <b>' + name + '.onnx</b> ไปใส่ ROI Studio · 1 zip = 1 โมเดล (AI 2 ชั้น: ทำจากอีกโปรเจกต์ด้วย)';
   },
   autoBgDone: function(n){ return '✨ สร้างรูป Background ' + n + ' รูปจากส่วนที่ไม่มีกรอบในรูปของคุณให้แล้ว'; },
 

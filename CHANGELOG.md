@@ -1,7 +1,15 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.6.0** (2026-11-12). Also shown on the web page (click the version badge).
+Current version: **v3.6.1** (2026-11-12). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.6.1 - 2026-11-12
+
+- YOLO kit: one model file, NAME_yolo.onnx (no duplicate best.onnx); the yolov8n.pt starting weights live inside .venv
+- Says clearly that 1 zip = 1 model - a two-AI job needs a download from both projects (START_HERE, web message, end of training)
+
+- ชุดเทรน YOLO: เหลือไฟล์โมเดลไฟล์เดียว ชื่อ_yolo.onnx (ไม่มี best.onnx ซ้ำ) · yolov8n.pt ตัวตั้งต้นเก็บไว้ใน .venv
+- บอกชัดว่า 1 zip = 1 โมเดล — งาน AI 2 ชั้นต้องดาวน์โหลดจากทั้ง 2 โปรเจกต์ (START_HERE, ข้อความบนเว็บ, ตอนเทรนเสร็จ)
 
 ## v3.6.0 - 2026-11-12
 

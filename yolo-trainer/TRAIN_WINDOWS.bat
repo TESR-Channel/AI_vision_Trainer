@@ -56,6 +56,7 @@ echo ==================================================
 echo   Done!  %NAME%.onnx  is in this folder.
 echo   ROI Studio: + Add a trained model - pick %NAME%.onnx
 echo   Test with the webcam:  .venv\Scripts\python run.py
+echo   1 zip = 1 model. Two AIs (find + count)? Download the other project too.
 echo ==================================================
 start "" explorer /select,"%~dp0%NAME%.onnx"
 pause
