@@ -432,6 +432,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       <button onclick="lblSaveNext()">&#10003; Confirm &amp; Next (Enter)</button>
       <button class="quiet" onclick="lblDelete()" title="Delete / Backspace">Delete box (Del)</button>
       <button class="quiet" onclick="lblClear()">Clear all (X)</button>
+      <button class="quiet" id="lblNone" onclick="lblNone()" title="0">&#8709; None in this photo (0)</button>
       <button class="quiet" onclick="lblNav(-1)">&#8592; Prev</button>
       <button class="quiet" onclick="lblNav(1)">Next &#8594;</button>
       <span class="tag" id="lblPos" style="margin-left:auto"></span>
@@ -877,7 +878,8 @@ function updateReadiness(){
       + ` (${good}+ is noticeably better): `,
       window.TH && TH.readiness(min, good, task==='detect'))
     + '&nbsp; ' + rows.join(' &nbsp;&middot;&nbsp; ')
-    + (un ? t(`<br>\ud83c\udff7 ${un} photos still need a box \u2014 click them (red border) or press "Label photos".`,
+    + (un ? t(`<br>\ud83c\udff7 ${un} photos still need a box \u2014 click them (red border) or press "Label photos". `
+              + `None of the part in a photo? Press &#8709; (key 0) there \u2014 it moves to Background.`,
               window.TH && TH.needBox(un)) : '');
 }
 function setStep(n){
@@ -1030,6 +1032,8 @@ function openLbl(clsName, idx){
   lblImg.src = e.src;
   document.getElementById('lblTitle').textContent =
     `Draw a box around: ${clsName}`;
+  document.getElementById('lblNone').innerHTML = t(`&#8709; No ${clsName} in this photo &rarr; Background (0)`,
+    T('lblNone', clsName));
   lblInfo();
   document.getElementById('lblMsg').textContent = '';
   document.getElementById('lblModal').classList.add('open');
@@ -1214,6 +1218,30 @@ function lblSaveNext(){
   }
   closeLbl();
 }
+/* a photo with none of the part in it (all screws missing, empty tray...) is not "unlabeled":
+   it is a Background photo - the AI learns "nothing to box here". Move it there, then go on. */
+function lblNone(){
+  const c = classes.find(x=>x.name===lblCls);
+  if (!c || bgCls(c) || !c.examples[lblIdx]) return;
+  const e = c.examples.splice(lblIdx, 1)[0];
+  setBoxes(e, []);
+  let bg = classes.find(bgCls);
+  if (!bg){ bg = {name: 'background', examples: []}; classes.push(bg); }
+  bg.examples.push(e);
+  document.getElementById('projMsg').innerHTML = t(
+    `&#8709; Moved 1 photo with no ${c.name} to <b>${bg.name}</b> (${bg.examples.length} photos).`,
+    T('lblNoneDone', c.name, bg.name, bg.examples.length));
+  renderClasses();
+  let i = c.examples.findIndex((x,j) => j >= lblIdx && !hasBox(x));
+  if (i < 0) i = c.examples.findIndex(x => !hasBox(x));
+  if (i >= 0) { openLbl(c.name, i); return; }
+  for (const c2 of classes){
+    if (bgCls(c2)) continue;
+    const k = c2.examples.findIndex(x => !hasBox(x));
+    if (k >= 0) { openLbl(c2.name, k); return; }
+  }
+  closeLbl();
+}
 function lblNav(d){
   const c = classes.find(x=>x.name===lblCls);
   const i = Math.min(Math.max(lblIdx + d, 0), c.examples.length - 1);
@@ -1246,6 +1274,7 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
     else if (ev.key === 'Escape') closeLbl();
     else if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); lblDelete(); }
     else if (ev.key === 'x' || ev.key === 'X') lblClear();
+    else if (ev.key === '0') { ev.preventDefault(); lblNone(); }
     else if (ev.key === 'q' || ev.key === 'Q') rotLbl(-3);
     else if (ev.key === 'e' || ev.key === 'E') rotLbl(3);
     else if (ev.key === 'r' || ev.key === 'R') rotLbl(0);
@@ -2109,16 +2138,61 @@ async function predictGrid(video){
 }
 
 /* ============ training ============ */
+/* Detection needs a Background class next to the part class. When it has fewer than 10 photos,
+   cut pieces of the labeled photos that hold NO box (plastic between screws, empty table...) and
+   use them as Background - marked ✨ so "Remove generated" takes them out again. */
+const AUTO_BG_MIN = 10;
+async function autoBackground(){
+  if (task !== 'detect') return 0;
+  const src = classes.filter(c => !bgCls(c)).flatMap(c => c.examples.filter(e => hasBox(e) && !e.aug));
+  if (src.length < 3) return 0;
+  let bg = classes.find(bgCls);
+  const have = bg ? bg.examples.length : 0;
+  if (have >= AUTO_BG_MIN) return 0;
+  const want = Math.max(AUTO_BG_MIN, Math.min(20, src.length)) - have;
+  const made = [];
+  for (let tries = 0; made.length < want && tries < want * 40; tries++){
+    const e = src[tries % src.length];
+    const img = await loadImg(e.src);
+    const W = img.width, H = img.height;
+    const bs = boxesOf(e).map(b => [(b[0]-b[2]/2)*W, (b[1]-b[3]/2)*H, (b[0]+b[2]/2)*W, (b[1]+b[3]/2)*H]);
+    const side = Math.sqrt(bs.reduce((a, b) => a + (b[2]-b[0])*(b[3]-b[1]), 0) / bs.length);
+    const sz = Math.min(W, H, side * (1.3 + Math.random() * 1.7));
+    if (sz < 24) continue;
+    const x0 = Math.random() * (W - sz), y0 = Math.random() * (H - sz);
+    const hit = bs.some(b => {
+      const iw = Math.min(x0 + sz, b[2]) - Math.max(x0, b[0]), ih = Math.min(y0 + sz, b[3]) - Math.max(y0, b[1]);
+      return iw > 0 && ih > 0 && iw * ih > 0.08 * (b[2]-b[0]) * (b[3]-b[1]);
+    });
+    if (hit) continue;
+    const cv = document.createElement('canvas'); cv.width = 224; cv.height = 224;
+    cv.getContext('2d').drawImage(img, x0, y0, sz, sz, 0, 0, 224, 224);
+    const f = embed(cv);
+    made.push(setBoxes({feat: await f.array(), thumb: shrink(cv), src: cv.toDataURL('image/jpeg', 0.9),
+                        w: 224, h: 224, aug: true, autoBg: true}, []));
+    f.dispose();
+    if (made.length % 4 === 0) await tf.nextFrame();
+  }
+  if (!made.length) return 0;
+  if (!bg){ bg = {name: 'background', examples: []}; classes.push(bg); }
+  bg.examples.push(...made);
+  renderClasses();
+  return made.length;
+}
+
 async function train(){
   const msg = document.getElementById('tMsg');
   msg.className = 'msg';
   if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
+  let autoBg = 0;
+  try { autoBg = await autoBackground(); } catch(err) { console.warn('auto background', err); }
   const pick = c => task==='detect' ? (bgCls(c) ? c.examples : c.examples.filter(hasBox)) : c.examples;
   const usable = classes.filter(c => pick(c).length >= 10);
   if (usable.length < 2) {
     msg.className = 'msg err';
-    msg.textContent = task==='detect'
-      ? 'Need at least 2 classes with 10+ LABELED photos each \u2014 draw boxes first (red-border photos).'
+    msg.innerHTML = task==='detect'
+      ? t('Need 10+ photos <b>with boxes</b> in the part class. Red-border photos: draw a box on each part that is there, '
+          + 'or press <b>&#8709; None in this photo</b> (key 0) when there is none.', T('trainNeedDet'))
       : 'Need at least 2 classes with 10+ photos each. Collect more first.';
     return;
   }
@@ -2197,6 +2271,8 @@ async function train(){
     const secs = ((performance.now()-t0)/1000).toFixed(1);
     document.getElementById('tbar').style.width = '100%';
     msg.textContent = `\u2705 Trained in ${secs}s on this computer \u2014 test it live below.`
+      + (autoBg ? ' ' + t(`\u2728 ${autoBg} Background photos made from the parts of your photos with no box.`,
+                          T('autoBgDone', autoBg)) : '')
       + (detHead ? ' ' + t(`Detection grid ${detHead.grid}\u00d7${detHead.grid}.`, `ตารางตรวจจับ ${detHead.grid}\u00d7${detHead.grid}`) : '')
       + (low.length ? ` \u26a0\ufe0f Below the recommended ${min}/class: ${low.join(', ')} \u2014 it will work, but more photos = better.` : '');
     document.getElementById('testCard').style.display = '';

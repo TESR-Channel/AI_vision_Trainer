@@ -1,7 +1,17 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.5.2** (2026-11-11). Also shown on the web page (click the version badge).
+Current version: **v3.5.3** (2026-11-11). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.5.3 - 2026-11-11
+
+- Label dialog: ∅ None in this photo → Background (key 0) — a photo with none of the part (all screws missing) moves to Background instead of staying red
+- Train Now: with fewer than 10 Background photos, Background is made automatically from the parts of your photos with no box (✨, Remove generated takes them out) — one part class is enough
+- The training warning says exactly what to do
+
+- หน้าตีกรอบ: ปุ่ม ∅ รูปนี้ไม่มี… → Background (ปุ่ม 0) — รูปที่ไม่มีชิ้นนั้นเลย (เช่น น็อตหายหมด) ย้ายไป Background ไม่ต้องค้างเป็นรูปขอบแดง
+- Train Now: ถ้า Background มีไม่ถึง 10 รูป สร้างให้อัตโนมัติจากส่วนของรูปที่ไม่มีกรอบ (✨ ลบได้ด้วย Remove generated) — คลาสเดียวก็เทรนได้
+- ข้อความเตือนตอนเทรนบอกตรง ๆ ว่าต้องทำอะไร
 
 ## v3.5.2 - 2026-11-11
 
