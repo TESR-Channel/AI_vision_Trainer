@@ -12,9 +12,23 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.5.2",
+  "version": "3.5.3",
   "date": "2026-11-11",
   "history": [
+    {
+      "v": "3.5.3",
+      "date": "2026-11-11",
+      "th": [
+        "หน้าตีกรอบ: ปุ่ม ∅ รูปนี้ไม่มี… → Background (ปุ่ม 0) — รูปที่ไม่มีชิ้นนั้นเลย (เช่น น็อตหายหมด) ย้ายไป Background ไม่ต้องค้างเป็นรูปขอบแดง",
+        "Train Now: ถ้า Background มีไม่ถึง 10 รูป สร้างให้อัตโนมัติจากส่วนของรูปที่ไม่มีกรอบ (✨ ลบได้ด้วย Remove generated) — คลาสเดียวก็เทรนได้",
+        "ข้อความเตือนตอนเทรนบอกตรง ๆ ว่าต้องทำอะไร"
+      ],
+      "en": [
+        "Label dialog: ∅ None in this photo → Background (key 0) — a photo with none of the part (all screws missing) moves to Background instead of staying red",
+        "Train Now: with fewer than 10 Background photos, Background is made automatically from the parts of your photos with no box (✨, Remove generated takes them out) — one part class is enough",
+        "The training warning says exactly what to do"
+      ]
+    },
     {
       "v": "3.5.2",
       "date": "2026-11-11",

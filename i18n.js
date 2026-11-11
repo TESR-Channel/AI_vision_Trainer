@@ -66,8 +66,16 @@ window.TH = {
       + 'ต่อคลาส (' + good + '+ ยิ่งดีชัดเจน): ';
   },
   needBox: function(un){
-    return '<br>🏷 อีก ' + un + ' รูปยังไม่มีกรอบ — คลิกรูปขอบแดง หรือกดปุ่ม "Label photos"';
+    return '<br>🏷 อีก ' + un + ' รูปยังไม่มีกรอบ — คลิกรูปขอบแดง หรือกดปุ่ม "Label photos" '
+      + '· รูปที่ไม่มีชิ้นนั้นเลย กด ∅ (ปุ่ม 0) ในหน้าตีกรอบ = ย้ายไป Background';
   },
+  lblNone: function(name){ return '∅ รูปนี้ไม่มี ' + name + ' เลย → Background (0)'; },
+  lblNoneDone: function(name, bg, n){
+    return '∅ ย้ายรูปที่ไม่มี ' + name + ' 1 รูปไป <b>' + bg + '</b> แล้ว (มี ' + n + ' รูป)';
+  },
+  trainNeedDet: 'คลาสชิ้นส่วนต้องมีรูปที่<b>ตีกรอบแล้ว</b> 10 รูปขึ้นไป · รูปขอบแดง: ตีกรอบทุกชิ้นที่มี '
+    + 'หรือถ้าไม่มีเลย กด <b>∅ รูปนี้ไม่มี…</b> (ปุ่ม 0)',
+  autoBgDone: function(n){ return '✨ สร้างรูป Background ' + n + ' รูปจากส่วนที่ไม่มีกรอบในรูปของคุณให้แล้ว'; },
 
   /* ✂ Crop boxes (two-stage QC) - static blocks keyed by element id */
   btnCrop: '✂ ตัดรูปตามกรอบ (Crop boxes)',
