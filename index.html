@@ -85,6 +85,8 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgb
 .cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .cls .head b{font-weight:500}
 .cls .count{margin-left:auto;font-size:13px}
+.cls.pend{border-style:dashed;border-color:var(--gold);background:var(--gold-soft)}
+.cls.pend .hint{font-size:13.5px;color:var(--ink);margin:0 0 10px;max-width:none}
 .clschip{background:var(--card);border:1.5px solid var(--edge);color:var(--muted);
   border-radius:999px;padding:8px 18px;font-size:14px}
 .clschip.active{border-color:var(--gold);color:var(--gold);background:var(--gold-soft);font-weight:500}
@@ -244,6 +246,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <button class="gold" id="btnDs" onclick="exportDataset()">&#11015; Download Dataset (YOLO)</button>
           <label class="tag" style="cursor:pointer"><input type="checkbox" id="dsAug" checked>
             include &#10024; generated</label>
+          <button class="gold" id="btnCrop" onclick="openCropDlg()"
+            title="Cut every box of one class out as new photos (two-stage QC)">&#9986; Crop boxes</button>
           <span class="msg" id="dsMsg" style="margin:0"></span>
         </div>
         <div class="hint" id="dsHint">Your labeled photos as a ready-to-train YOLO dataset
@@ -422,6 +426,43 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
   </div>
 </div>
 
+<!-- Crop boxes (detection task): cut every box of one class out as new photos -->
+<div class="modal" id="cropModal">
+  <div class="mbox" style="max-width:560px">
+    <h3 id="cropTitle">&#9986; Crop boxes</h3>
+    <p class="sub" id="cropSub">Cuts every box of one class out of its photo as a new photo &mdash; e.g. every
+      <b>terminal</b> block &mdash; so a second AI can learn the small parts inside
+      (two-stage QC: AI #1 finds the part &rarr; AI #2 finds the screws in the crop).</p>
+    <div class="row" style="align-items:flex-end">
+      <div><label class="tag" id="cropClsLbl">Class to cut</label><br>
+        <select id="cropCls" style="width:220px" onchange="cropUpdate()"></select></div>
+      <div><label class="tag" id="cropPadLbl">Padding around each box (%)</label><br>
+        <input type="number" id="cropPad" value="10" min="0" max="100" step="5" style="width:110px"
+          oninput="cropUpdate()"></div>
+    </div>
+    <div class="hint" id="cropPadHint">Added on every side, as a share of the box's width / height
+      (10% = 20% wider), never past the photo edge. Rotated boxes use their upright extent.
+      Generated &#10024; photos are not cut.</div>
+    <div class="note" id="cropCount"></div>
+    <div id="cropStep1" class="row" style="margin-top:14px">
+      <button id="cropNewBtn" onclick="cropAskNew()">&#9654; Start a new project from these crops</button>
+      <button class="gold" id="cropZipBtn" onclick="cropDownload()">&#11015; Download crops (.zip)</button>
+      <button class="quiet" id="cropCloseBtn" onclick="closeCropDlg()">Close</button>
+    </div>
+    <div id="cropStep2" style="display:none;margin-top:14px">
+      <div class="msg err" style="margin:0"><span id="cropWarn"><b>The new project replaces the current one</b>
+        (its photos, boxes and trained model). Save project 1 first so you can open it again with
+        Load Project.</span><br><span id="cropWarnState"></span></div>
+      <div class="row" style="margin-top:12px">
+        <button id="cropSaveStart" onclick="cropStartNew(true)">&#128190; Save project 1, then start</button>
+        <button class="quiet" id="cropNoSave" onclick="cropStartNew(false)">Start without saving</button>
+        <button class="quiet" id="cropBack" onclick="cropShowStep(1)">&larr; Back</button>
+      </div>
+    </div>
+    <div class="msg" id="cropMsg"></div>
+  </div>
+</div>
+
 <script>
 /* ============ version ============ */
 const APP = window.TESR_APP || {name: 'TESR AI Vision Web Trainer', version: '?', date: '', history: []};
@@ -457,9 +498,13 @@ applyTheme(th);
 /* Thai strings live in i18n.js (window.TH). If it fails to load, the page stays English. */
 let LANG = 'en'; try{LANG = localStorage.getItem('tesr_lang') || 'en'}catch(e){}
 function t(en, th2){ return (LANG === 'th' && th2) ? th2 : en; }
+/* a Thai string or function from i18n.js (undefined if missing -> t() falls back to English) */
+function T(key, ...args){ const v = window.TH && window.TH[key]; return typeof v === 'function' ? v(...args) : v; }
 const I18N_IDS = ['hdTag','hwSub','taskSub','tdP','tcP','clsSub','capTip','augSub','augHint',
                   'trainSub','testSub','gatesHint','detHint','expNote','lblSub','lblMulti','projNote',
-                  'multiHint','onnxHint'];
+                  'multiHint','onnxHint',
+                  'btnCrop','cropTitle','cropSub','cropClsLbl','cropPadLbl','cropPadHint','cropNewBtn',
+                  'cropZipBtn','cropCloseBtn','cropWarn','cropSaveStart','cropNoSave','cropBack'];
 function applyLang(){
   const TH = window.TH || {};
   document.getElementById('langBtn').textContent =
@@ -471,6 +516,7 @@ function applyLang(){
     el.innerHTML = (LANG === 'th' && TH[id]) ? TH[id] : el.dataset.en;
   }
   setTask(task);   // refreshes the task-dependent texts + readiness in the chosen language
+  if (document.getElementById('cropModal').classList.contains('open')) cropUpdate();
 }
 function toggleLang(){
   LANG = LANG === 'th' ? 'en' : 'th';
@@ -482,6 +528,9 @@ function toggleLang(){
 let classes = [];   // [{name, examples: [{feat, thumb, src, w, h, aug, box}]}]  box=[cx,cy,w,h(,angleDeg)] or null
 let net = null, head = null, boxHead = null, boxHeadS = null, detHead = null, camOK = false, liveOn = false;
 let task = 'detect';                       // 'detect' | 'classify'
+/* photos waiting for a class: a new project made by Crop boxes starts with its crops here.
+   The first (non-background) class you add takes them all. Saved in project.json as `pending`. */
+let pending = [], pendingFrom = '';
 const REC = {detect:{min:40, good:80}, classify:{min:30, good:60}};
 
 function setTask(t){
@@ -514,6 +563,7 @@ function setTask(t){
   if (t==='classify') modeSel.value = 'classify';
   else if (modeSel.value === 'classify') modeSel.value = 'detect';
   document.getElementById('tgtModeBox').style.display = t==='detect' ? '' : 'none';
+  document.getElementById('btnCrop').style.display = t==='detect' ? '' : 'none';
   syncModeUI(); syncTargetUI();
   document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
   document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
@@ -592,8 +642,17 @@ function addClass(){
   const name = document.getElementById('newCls').value.trim()
     .replace(/[^A-Za-z0-9_\-]/g,'_');
   if (!name || classes.find(c=>c.name===name)) return;
-  classes.push({name, examples: []});
+  const c = {name, examples: []};
+  classes.push(c);
   document.getElementById('newCls').value = '';
+  if (pending.length && !bgCls(c)){            // cropped photos waiting for their class -> this one
+    const n = pending.length;
+    c.examples = pending; pending = []; pendingFrom = ''; capClass = name;
+    document.getElementById('projMsg').innerHTML = t(
+      `✅ ${n} cropped photos are now in <b>${name}</b> — click a red-border photo and drag a box on `
+      + `every ${name} (drag again on empty space for the next one), Enter = next photo.`,
+      T('pendAdopted', n, name));
+  }
   renderClasses();
 }
 function removeClass(name){
@@ -642,8 +701,28 @@ function countChip(c){
   const word = task==='detect' ? (bgCls(c) ? 'photos &middot; no boxes needed' : 'labeled') : 'photos';
   return `<span class="chip ${cl}" style="padding:3px 12px">${n}/${min} ${word}</span>`;
 }
+function renderPending(){
+  if (!pending.length) return '';
+  const n = pending.length;
+  return `
+    <div class="cls pend" id="pendBox">
+      <div class="head">
+        <b>${t(`✂ ${n} cropped photos from "${pendingFrom}" — waiting for a class`,
+               T('pendHead', n, pendingFrom))}</b>
+      </div>
+      <div class="hint">${t('<b>Next:</b> type the part’s class name in the box above (e.g. <b>screw</b>) and '
+        + 'press <b>+ Add Class</b> &mdash; these photos go into that class. Then click a photo and drag a box '
+        + 'on <b>every</b> part (drag again on empty space for the next one), <b>Enter</b> = confirm &amp; next.',
+        T('pendHint'))}</div>
+      <div class="thumbs">${pending.map(e => `
+        <span class="tw unlbl" onclick="document.getElementById('newCls').focus()"><img src="${e.thumb}"></span>`
+      ).join('')}</div>
+    </div>`;
+}
 function renderClasses(){
-  document.getElementById('clsList').innerHTML = classes.map(c => {
+  document.getElementById('newCls').placeholder = pending.length
+    ? t('Part class name, e.g. screw', T('pendPlaceholder')) : 'Class name, e.g. jetson_board';
+  document.getElementById('clsList').innerHTML = renderPending() + classes.map(c => {
     const nAug = c.examples.filter(e=>e.aug).length;
     return `
     <div class="cls">
@@ -668,7 +747,7 @@ function renderClasses(){
           <button class="x" title="Delete this example"
             onclick="event.stopPropagation();deleteExample('${c.name}', ${i})">\u2715</button></span>`).join('')}</div>
     </div>`;}).join('') ||
-    '<div class="msg">No classes yet \u2014 add at least two above.</div>';
+    (pending.length ? '' : '<div class="msg">No classes yet \u2014 add at least two above.</div>');
   renderCapChips();
   updateSummary();
   updateReadiness();
@@ -1082,6 +1161,16 @@ function closeLbl(){ document.getElementById('lblModal').classList.remove('open'
    Used by Save Project AND by every export, so any TESR zip can be loaded back. */
 function writeProject(zip, base){
   const meta = {app:'tesr-ai-vision', version:1, trainer_version: APP.version, task, classes:[]};
+  let np = 0;
+  if (pending.length){                           // cropped photos not in a class yet (older pages ignore this)
+    meta.pending_from = pendingFrom;
+    meta.pending = pending.map((e, i) => {
+      const f = 'images/p_' + i + '.jpg';
+      zip.file(base + f, e.src.split(',')[1], {base64:true});
+      np++;
+      return {file:f, w:e.w, h:e.h};
+    });
+  }
   let n = 0;
   classes.forEach((c,ci)=>{
     const mc = {name:c.name, examples:[]};
@@ -1096,20 +1185,29 @@ function writeProject(zip, base){
     meta.classes.push(mc);
   });
   zip.file(base + 'project.json', JSON.stringify(meta));
-  return n;
+  return n + np;
 }
-async function saveProject(){
+/* what Save Project would write - to tell whether the project changed since the last save / load */
+let savedSig = null;
+function projSig(){
+  return JSON.stringify([task, pending.length, classes.map(c =>
+    [c.name, c.examples.filter(e => !e.aug).map(e => [e.w, e.h, boxesOf(e)])])]);
+}
+async function saveProject(fileName){
   const m = document.getElementById('projMsg');
-  const real = classes.reduce((n,c)=>n + c.examples.filter(e=>!e.aug).length, 0);
-  if (!real){ m.textContent = 'Nothing to save yet \u2014 collect some photos first.'; return; }
+  const name = (typeof fileName === 'string' && fileName) ? fileName : 'tesr-project.zip';
+  const real = classes.reduce((n,c)=>n + c.examples.filter(e=>!e.aug).length, 0) + pending.length;
+  if (!real){ m.textContent = 'Nothing to save yet \u2014 collect some photos first.'; return false; }
   m.textContent = 'Building project zip...';
   try{
     const zip = new JSZip();
     writeProject(zip, 'project/');
     const blob = await zip.generateAsync({type:'blob'});
-    download(blob, 'tesr-project.zip');
-    m.textContent = 'Saved ' + real + ' photos in tesr-project.zip \u2014 load it any time to continue.';
-  }catch(err){ m.textContent = 'Save failed: ' + err.message; }
+    download(blob, name);
+    savedSig = projSig();
+    m.textContent = 'Saved ' + real + ' photos in ' + name + ' \u2014 load it any time to continue.';
+    return true;
+  }catch(err){ m.textContent = 'Save failed: ' + err.message; return false; }
 }
 async function loadProject(file){
   const m = document.getElementById('projMsg');
@@ -1130,36 +1228,244 @@ async function loadProject(file){
     const pj = zip.file(pjName);
     const meta = JSON.parse(await pj.async('string'));
     if (meta.task && meta.task !== task) setTask(meta.task);
-    const total = meta.classes.reduce((n,c)=>n + c.examples.length, 0);
+    const metaPend = Array.isArray(meta.pending) ? meta.pending : [];
+    const total = meta.classes.reduce((n,c)=>n + c.examples.length, 0) + metaPend.length;
     let done = 0;
+    const loadEx = async ex => {
+      const zf = zip.file(base + ex.file);
+      if (!zf) return null;
+      const src = 'data:image/jpeg;base64,' + await zf.async('base64');
+      const img = new Image();
+      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
+      const cv2 = document.createElement('canvas');
+      cv2.width = 224; cv2.height = 224;
+      cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
+      const f = embed(cv2);
+      const e = setBoxes({feat: await f.array(), thumb: shrink(cv2), src,
+                          w: ex.w || img.width, h: ex.h || img.height},
+                          (ex.boxes && ex.boxes.length) ? ex.boxes : (ex.box ? [ex.box] : []));
+      f.dispose();
+      done++;
+      if (done % 5 === 0){ m.textContent = 'Loading... ' + done + '/' + total; await tf.nextFrame(); }
+      return e;
+    };
     const out = [];
     for (const mc of meta.classes){
       const c = {name:mc.name, examples:[]};
       for (const ex of mc.examples){
-        const zf = zip.file(base + ex.file);
-        if (!zf) continue;
-        const src = 'data:image/jpeg;base64,' + await zf.async('base64');
-        const img = new Image();
-        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
-        const cv2 = document.createElement('canvas');
-        cv2.width = 224; cv2.height = 224;
-        cv2.getContext('2d').drawImage(img, 0, 0, 224, 224);
-        const f = embed(cv2);
-        c.examples.push(setBoxes({feat: await f.array(), thumb: shrink(cv2), src,
-                         w: ex.w || img.width, h: ex.h || img.height},
-                         (ex.boxes && ex.boxes.length) ? ex.boxes : (ex.box ? [ex.box] : [])));
-        f.dispose();
-        done++;
-        if (done % 5 === 0){ m.textContent = 'Loading... ' + done + '/' + total; await tf.nextFrame(); }
+        const e = await loadEx(ex);
+        if (e) c.examples.push(e);
       }
       out.push(c);
     }
+    const outPend = [];
+    for (const ex of metaPend){
+      const e = await loadEx(ex);
+      if (e) outPend.push(e);
+    }
     classes = out;
+    pending = outPend; pendingFrom = outPend.length ? (meta.pending_from || '') : '';
     renderClasses();
+    savedSig = projSig();
     m.textContent = 'Loaded ' + done + ' photos in ' + out.length
       + ' classes \u2014 add a new class if you want, then press Train.';
   }catch(err){ m.textContent = 'Load failed: ' + err.message; }
 }
+
+/* ============ crop boxes (two-stage QC) ============
+   AI #1 finds the whole part (e.g. `terminal`), AI #2 finds the small things inside it
+   (e.g. `screw`). This cuts every box of one class out of its photo, so AI #2's photos
+   need no script: either as a new detection project, or as a zip of plain JPGs.
+   Source = e.src, the best copy the page keeps (captured / uploaded photos: 640 px on the
+   long side; photos from a project zip: the size stored in that zip). */
+const CROP_Q = 0.92;
+function cropClasses(){
+  return task === 'detect'
+    ? classes.filter(c => !bgCls(c) && c.examples.some(e => !e.aug && hasBox(e))) : [];
+}
+function cropSources(name){        // [{e, i}] real (not ✨) photos of the class with at least one box
+  const c = classes.find(x => x.name === name);
+  return c ? c.examples.map((e, i) => ({e, i})).filter(o => !o.e.aug && hasBox(o.e)) : [];
+}
+function cropPad(){
+  const v = parseFloat(document.getElementById('cropPad').value);
+  return isFinite(v) ? Math.min(Math.max(v, 0), 100) / 100 : 0.10;
+}
+function cropRect(b, W, H, pad){   // pixel [x, y, w, h]: upright extent of the box + pad on every side, clamped
+  const [cx, cy, w, h] = aabbBox(b, W, H);
+  const x1 = Math.max(0, Math.floor((cx - w/2 - w*pad) * W));
+  const y1 = Math.max(0, Math.floor((cy - h/2 - h*pad) * H));
+  const x2 = Math.min(W, Math.ceil((cx + w/2 + w*pad) * W));
+  const y2 = Math.min(H, Math.ceil((cy + h/2 + h*pad) * H));
+  return [x1, y1, x2 - x1, y2 - y1];
+}
+function cropBaseName(name, i){ return name + '_' + String(i).padStart(4, '0'); }   // = the Download Dataset name
+function loadImg(src){
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im); im.onerror = () => rej(new Error('photo could not be decoded'));
+    im.src = src;
+  });
+}
+async function makeCrops(name, pad, prog){
+  const out = [];
+  for (const {e, i} of cropSources(name)){
+    const img = await loadImg(e.src);
+    const W = img.naturalWidth, H = img.naturalHeight;
+    boxesOf(e).forEach((b, k) => {
+      const [x, y, w, h] = cropRect(b, W, H, pad);
+      if (w < 2 || h < 2) return;
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
+      out.push({cv, file: cropBaseName(name, i) + '_' + (k + 1) + '.jpg', src: [W, H], rect: [x, y, w, h]});
+    });
+    if (prog) await prog(out.length);
+  }
+  return out;
+}
+function cropShowStep(n){
+  document.getElementById('cropStep1').style.display = n === 1 ? '' : 'none';
+  document.getElementById('cropStep2').style.display = n === 2 ? '' : 'none';
+}
+function cropBusy(on){
+  for (const id of ['cropNewBtn', 'cropZipBtn', 'cropSaveStart', 'cropNoSave', 'cropBack'])
+    document.getElementById(id).disabled = on || (id !== 'cropBack' && !cropCount().n);
+  document.getElementById('cropCls').disabled = on;
+  document.getElementById('cropPad').disabled = on;
+}
+function cropCount(){
+  const name = document.getElementById('cropCls').value;
+  const src = cropSources(name), pad = cropPad();
+  let n = 0, a = null, z = null;
+  for (const {e} of src){
+    const W = e.w || 640, H = e.h || 480;
+    for (const b of boxesOf(e)){
+      const [, , w, h] = cropRect(b, W, H, pad);
+      if (w < 2 || h < 2) continue;
+      n++;
+      if (!a || w*h < a[0]*a[1]) a = [w, h];
+      if (!z || w*h > z[0]*z[1]) z = [w, h];
+    }
+  }
+  const sizes = [...new Set(src.map(o => (o.e.w || 640) + '×' + (o.e.h || 480)))];
+  return {name, n, photos: src.length, small: a, big: z, sizes};
+}
+function openCropDlg(){
+  const sel = document.getElementById('cropCls');
+  const cs = cropClasses();
+  const keep = sel.value;
+  sel.innerHTML = cs.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+  if (cs.find(c => c.name === keep)) sel.value = keep;
+  document.getElementById('cropMsg').textContent = '';
+  cropShowStep(1);
+  cropUpdate();
+  document.getElementById('cropModal').classList.add('open');
+}
+function closeCropDlg(){ document.getElementById('cropModal').classList.remove('open'); }
+function cropUpdate(){
+  const el = document.getElementById('cropCount');
+  const c = cropCount();
+  cropBusy(false);
+  if (!c.n){
+    el.innerHTML = t('No boxes to cut yet — draw boxes on your photos first (detection task).', T('cropNone'));
+    return;
+  }
+  const px = s => s[0] + '×' + s[1];
+  const range = px(c.small) === px(c.big) ? px(c.small) : px(c.small) + ' … ' + px(c.big);
+  el.innerHTML = t(`<b>${c.n} crops</b> will be made from ${c.photos} photos of <b>${c.name}</b> `
+      + `(source photos ${c.sizes.join(', ')} px, crops about ${range} px).`,
+      T('cropCount', c.n, c.photos, c.name, c.sizes.join(', '), range));
+}
+async function cropDownload(){
+  const m = document.getElementById('cropMsg');
+  const name = document.getElementById('cropCls').value;
+  if (!cropCount().n) return;
+  cropBusy(true);
+  m.textContent = t('Cutting...', T('cropCutting'));
+  try{
+    const crops = await makeCrops(name, cropPad(), async k => {
+      m.textContent = t('Cutting... ', T('cropCutting')) + k; await tf.nextFrame(); });
+    const zip = new JSZip();
+    for (const cr of crops)
+      zip.file('crops_' + name + '/' + cr.file, cr.cv.toDataURL('image/jpeg', CROP_Q).split(',')[1], {base64:true});
+    const blob = await zip.generateAsync({type:'blob'});
+    const zipName = 'tesr-crops-' + name + '.zip';
+    download(blob, zipName);
+    m.innerHTML = t(`✅ Downloaded ${crops.length} crops as <b>${zipName}</b> (folder crops_${name}/, `
+      + `named &lt;photo&gt;_&lt;box number&gt;.jpg).`, T('cropZipDone', crops.length, zipName, name));
+  }catch(err){
+    m.textContent = t('Crop failed: ', T('cropFailed')) + err.message;
+  }finally{ cropBusy(false); }
+}
+function cropAskNew(){
+  if (!cropCount().n) return;
+  const real = classes.reduce((n, c) => n + c.examples.filter(e => !e.aug).length, 0) + pending.length;
+  const same = savedSig !== null && savedSig === projSig();
+  document.getElementById('cropWarnState').innerHTML = same
+    ? t('Project 1 is unchanged since you last saved or loaded it.', T('cropWarnSaved'))
+    : t(`Project 1 has ${real} photos, with changes that are not saved yet.`, T('cropWarnUnsaved', real));
+  document.getElementById('cropMsg').textContent = '';
+  cropShowStep(2);
+}
+function resetTrained(){             // the new project has no model yet - never export project 1's model with it
+  if (liveOn) toggleLive();
+  head = null; boxHead = null; boxHeadS = null; detHead = null; protos = null;
+  modelVersion++; onnxCache = null; protoT = null; lastMulti = null;
+  document.getElementById('testCard').style.display = 'none';
+  for (const id of ['btnExport', 'btnOnnx', 'btnRoi']) document.getElementById(id).disabled = true;
+  document.getElementById('tMsg').textContent = '';
+  document.getElementById('tmetrics').innerHTML = '';
+  document.getElementById('tbar').style.width = '0';
+}
+async function cropStartNew(save){
+  const m = document.getElementById('cropMsg');
+  const name = document.getElementById('cropCls').value;
+  if (!net){ m.textContent = 'Backbone still loading — wait a moment.'; return; }
+  if (!cropCount().n) return;
+  cropBusy(true);
+  m.textContent = t('Cutting...', T('cropCutting'));
+  try{
+    // cut + embed everything BEFORE touching project 1, so a failure leaves it as it was
+    const crops = await makeCrops(name, cropPad(), async k => {
+      m.textContent = t('Cutting... ', T('cropCutting')) + k; await tf.nextFrame(); });
+    const exs = [];
+    for (const cr of crops){
+      const f = embed(makeSrc(cr.cv));
+      exs.push({feat: await f.array(), thumb: shrink(cr.cv), src: cr.cv.toDataURL('image/jpeg', CROP_Q),
+                w: cr.cv.width, h: cr.cv.height, aug: false, box: null, boxes: null});
+      f.dispose();
+      if (exs.length % 5 === 0){ m.textContent = t('Preparing photos... ', T('cropPreparing')) + exs.length
+                                   + '/' + crops.length; await tf.nextFrame(); }
+    }
+    let savedAs = '';
+    if (save){
+      savedAs = 'tesr-project-' + name + '.zip';
+      if (!await saveProject(savedAs)){
+        m.textContent = t('Saving project 1 failed — nothing was replaced.', T('cropSaveFailed'));
+        return;
+      }
+    }
+    resetTrained();
+    if (task !== 'detect') setTask('detect');
+    classes = []; capClass = null;
+    pending = exs; pendingFrom = name; savedSig = null;
+    closeCropDlg();
+    renderClasses();
+    document.getElementById('projMsg').innerHTML = t(
+      `✂ New project: ${exs.length} crops of <b>${name}</b>`
+      + (savedAs ? ` (project 1 saved as <b>${savedAs}</b>)` : '')
+      + ` — type the part class name below, e.g. <b>screw</b>, and press <b>+ Add Class</b>.`,
+      T('cropNewDone', exs.length, name, savedAs));
+    document.getElementById('clsCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+    document.getElementById('newCls').focus({preventScroll: true});
+  }catch(err){
+    m.textContent = t('Crop failed: ', T('cropFailed')) + err.message;
+  }finally{ cropBusy(false); }
+}
+window.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && document.getElementById('cropModal').classList.contains('open')) closeCropDlg();
+});
 
 /* ============ augmentation ============ */
 function augmentVariant(img, boxes){

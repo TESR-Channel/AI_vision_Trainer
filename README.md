@@ -33,6 +33,14 @@ files, auto-augment small datasets, train in seconds, test live, and export.
    Several objects in one photo (e.g. every screw head on a part)? Drag again on
    empty space for another box, click a box to select it, **Delete** removes it,
    **X** clears all.
+   **✂ Crop boxes** (next to Download Dataset) — two-stage QC: cut every box of one
+   class (e.g. each `terminal` block) out as a new photo, with padding (default 10%).
+   Either **start a new detection project from the crops** (the dialog offers to save
+   the current project first; then type the part class, e.g. `screw`, press
+   **+ Add Class** and every crop is in it, ready to box) or **download the crops (.zip)**
+   as plain JPGs named `<class>_<photo>_<box>.jpg`. Crops come from the best copy the
+   page keeps: 640 px on the long side for captured/uploaded photos, the stored size for
+   photos loaded from a project zip.
 5. **Train**, then **Live Test** with your webcam.
 6. **Export** — pick the device (**PC / Raspberry Pi 5 / Jetson Orin / Jetson Nano**)
    and camera (**USB / CSI**), then:
@@ -115,6 +123,9 @@ and train it offline with YOLO — same photos, same labels, one command.
    แล้วกด **Download Model** ได้ `model.onnx` + `predict.py` + ตัวติดตั้งตรงรุ่น,
    **ONNX only** สำหรับบท ONNX → TensorRT หรือ **Send to ROI Studio** ส่งโมเดลไปวาง ROI ต่อได้ทันที
 6. ค่าเริ่มต้นตรวจจับ **ทุกชิ้นในภาพ** พร้อมกัน แต่ละชิ้นได้กรอบ + center (x,y) + หมายเลข และทำให้นิ่งแยกกันทีละชิ้น
+7. QC สองขั้น (เช่น terminal → หัวน็อต): กด **✂ ตัดรูปตามกรอบ (Crop boxes)** ข้างปุ่ม Download Dataset
+   เลือกคลาสที่จะตัด + ขอบเผื่อ (ค่าเริ่มต้น 10%) แล้ว **เริ่มโปรเจกต์ใหม่จากรูปที่ตัด** (บันทึกโปรเจกต์ 1 ก่อนได้ในคลิกเดียว)
+   พิมพ์ชื่อคลาส เช่น `screw` กด **+ Add Class** แล้วลากกรอบหัวน็อตทุกตัว — หรือ **ดาวน์โหลดรูปที่ตัด (.zip)** เป็น JPG ล้วน
 
 คู่มือฉบับเต็ม (ไทย/อังกฤษ): [`yolo-trainer/README.md`](yolo-trainer/README.md)
 
