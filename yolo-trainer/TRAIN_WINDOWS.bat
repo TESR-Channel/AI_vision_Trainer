@@ -16,7 +16,10 @@ echo ==================================================
 REM ---- 1. find Python 3.10 - 3.14 ----
 set "PY="
 for %%V in (3.12 3.11 3.13 3.10 3.14) do call :trypy %%V
-if not defined PY python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,14) else 1)" >nul 2>nul && set "PY=python"
+if defined PY goto havepy
+python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,14) else 1)" >nul 2>nul
+if not errorlevel 1 set "PY=python"
+:havepy
 if not defined PY goto nopython
 echo Python: %PY%
 
@@ -31,7 +34,8 @@ if exist ".venv\tesr_ok.txt" goto train
 echo.
 echo [2/3] Installing YOLO - first time only, takes a few minutes ...
 "%VPY%" -m pip install --upgrade pip
-where nvidia-smi >nul 2>nul && goto gpu
+where nvidia-smi >nul 2>nul
+if not errorlevel 1 goto gpu
 echo No NVIDIA card found - training on the CPU (slower, works fine for small datasets).
 goto deps
 :gpu
@@ -59,7 +63,8 @@ exit /b 0
 
 :trypy
 if defined PY exit /b 0
-py -%1 -c "1" >nul 2>nul && set "PY=py -%1"
+py -%1 -c "1" >nul 2>nul
+if not errorlevel 1 set "PY=py -%1"
 exit /b 0
 
 :nopython
