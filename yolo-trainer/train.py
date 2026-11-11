@@ -55,6 +55,18 @@ def fix_yaml_paths(p):
     y.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def export_onnx(weights, imgsz, dest):
+    """best.pt -> dest (.onnx) at the training size, the format TESR ROI Studio reads."""
+    from ultralytics import YOLO
+    try:
+        out = YOLO(str(weights)).export(format="onnx", imgsz=imgsz, opset=12)
+    except Exception as e:                       # very new torch without opset 12 -> its default
+        print("opset 12 export failed (%s) - trying the default opset" % e)
+        out = YOLO(str(weights)).export(format="onnx", imgsz=imgsz)
+    shutil.copy(out, dest)
+    print("\n==> %s is ready: TESR ROI Studio -> + Add a trained model -> pick this file" % dest)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=str(HERE / "dataset"))
@@ -66,6 +78,9 @@ def main():
                     help="lower to 8 if the GPU runs out of memory")
     ap.add_argument("--device", default=None,
                     help="0 = first GPU, cpu = force CPU (default: auto)")
+    ap.add_argument("--onnx", default=None, metavar="NAME",
+                    help="after training also export NAME.onnx next to this script "
+                         "(ready for TESR ROI Studio: + Add a trained model)")
     args = ap.parse_args()
 
     data_dir = Path(args.data)
@@ -89,6 +104,8 @@ def main():
     if best.exists():
         shutil.copy(best, HERE / "best.pt")
         print("\nDone. best.pt copied to %s" % (HERE / "best.pt"))
+        if args.onnx:
+            export_onnx(HERE / "best.pt", args.imgsz, HERE / (args.onnx + ".onnx"))
         print("Test it:   python run.py --conf 0.25")
         print("Deploy it: python export.py --target pi   (run on THIS computer)")
     else:

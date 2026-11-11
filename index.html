@@ -651,11 +651,11 @@ function setTask(t){
   document.getElementById('detHint').style.display = t==='detect' ? '' : 'none';
   document.getElementById('prec').style.display = t==='detect' ? '' : 'none';
   document.getElementById('dsHint').innerHTML = t==='detect'
-    ? window.t('Your labeled photos as a ready-to-train <b>YOLO detection dataset</b> (images + '
-      + 'labels + data.yaml). Rotated boxes export as <b>YOLO OBB</b> automatically. Train it '
-      + 'offline with <code>yolo-trainer/train.py</code> for production-grade boxes \u2014 your '
-      + 'hand-drawn boxes are the labels, so no plain background is needed. Generated \u2728 '
-      + 'photos inherit their boxes and go to the train split (val stays real).',
+    ? window.t('A <b>one-click YOLO training kit</b>: your labeled photos (images + labels + data.yaml) '
+      + 'plus the trainer. Unzip, double-click <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: '
+      + '<code>bash train_mac_linux.sh</code>) \u2014 it installs itself the first time and gives you '
+      + '<b>NAME.onnx</b> for ROI Studio. Rotated boxes export as <b>YOLO OBB</b> automatically. '
+      + 'Generated \u2728 photos go to the train split (val stays real).',
       window.TH && TH.dsHintDetect)
     : window.t('Your photos as a ready-to-train <b>YOLO classification dataset</b> (one folder per '
       + 'class). Train it offline with <code>yolo-trainer/train.py</code> \u2014 the task is '
@@ -3267,6 +3267,17 @@ GPU (NVIDIA) trains in minutes; CPU also works, just slower.
 Paths inside the dataset are fixed automatically by train.py,
 so this zip works anywhere.
 `;
+/* settings for the one-click YOLO kit: model file name + image size from the photos themselves */
+function yoloKit(names){
+  const main = names.find(nm => !bgCls({name: nm})) || 'model';
+  const slug = String(main).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
+  const sides = classes.filter(c => !bgCls(c)).flatMap(c => c.examples.filter(e => !e.aug))
+    .map(e => Math.max(e.w || 640, e.h || 480)).sort((a, b) => a - b);
+  const med = sides.length ? sides[sides.length >> 1] : 640;
+  // cut-out photos (✂ crops) are small -> 320 is plenty and fast; full camera photos -> 416
+  return {name: slug + '_yolo', slug, imgsz: med <= 640 ? 320 : 416, epochs: 100};
+}
+
 async function exportDataset(){
   const m = document.getElementById('dsMsg');
   const wantBox = task === 'detect';
@@ -3281,9 +3292,13 @@ async function exportDataset(){
     return;
   }
   m.textContent = 'Building dataset zip...';
-  // any rotated box -> the WHOLE detection export becomes YOLO OBB (formats can't mix)
-  const hasOBB = wantBox && classes.some(c =>
-    c.examples.some(e => pickOk(e) && boxesOf(e).some(b => Math.abs(boxAngle(b)) > 0.5)));
+  // mostly rotated boxes -> the WHOLE export becomes YOLO OBB (formats can't mix). A few rotated boxes
+  // (often a stray scroll in the label dialog) -> plain boxes around them: plain YOLO is what
+  // ROI Studio and most runners read, and a round screw head looks the same at any angle.
+  const allB = wantBox ? classes.flatMap(c => c.examples.filter(pickOk).flatMap(boxesOf)) : [];
+  const nRot = allB.filter(b => Math.abs(boxAngle(b)) > 3).length;
+  const hasOBB = wantBox && nRot > 0 && nRot >= allB.length / 2;
+  const nStraightened = hasOBB ? 0 : nRot;
   try {
     const zip = new JSZip();
     let n = 0, nAug = 0;
@@ -3315,7 +3330,12 @@ async function exportDataset(){
             if (hasOBB)
               return ci + ' ' + obbCorners(b, e.w || 640, e.h || 480)
                 .map(c => c[0].toFixed(6) + ' ' + c[1].toFixed(6)).join(' ') + '\n';
-            const [cx, cy, w, h] = b;
+            let [cx, cy, w, h] = b;
+            if (Math.abs(boxAngle(b)) > 0.5){            // rotated box -> the plain box around it
+              const P = obbCorners(b, e.w || 640, e.h || 480), xs = P.map(q => q[0]), ys = P.map(q => q[1]);
+              const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+              cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; w = x1 - x0; h = y1 - y0;
+            }
             return ci + ' ' + cx.toFixed(6) + ' ' + cy.toFixed(6) + ' '
                       + w.toFixed(6) + ' ' + h.toFixed(6) + '\n';
           });
@@ -3331,17 +3351,32 @@ async function exportDataset(){
       zip.file('dataset/data.yaml',
         'path: .\ntrain: images/train\nval: images/val\nnames:\n' +
         names.map((nm, i) => '  ' + i + ': ' + nm).join('\n') + '\n');
-    zip.file('dataset/START_HERE.md', (window.TESR_EDGE_FILES || {})['START_HERE_DATASET.md'] || DS_README);
+    // one-click training kit at the zip root: unzip -> double-click TRAIN_WINDOWS.bat -> NAME.onnx
+    const kit = yoloKit(names);
+    const Y = window.TESR_YOLO_FILES || {};
+    const fill = s => s.split('__NAME__').join(kit.name).split('__IMGSZ__').join(String(kit.imgsz))
+                       .split('__EPOCHS__').join(String(kit.epochs)).split('__VERSION__').join('v' + APP.version);
+    for (const f of Object.keys(Y)){
+      let txt = Y[f];
+      if (/^TRAIN_WINDOWS\.bat$|^train_mac_linux\.sh$/.test(f)) txt = fill(txt);
+      if (/\.bat$/.test(f)) txt = txt.replace(/\r?\n/g, '\r\n');          // cmd.exe needs CRLF
+      zip.file(f, txt, /\.sh$/.test(f) ? {unixPermissions: '755'} : {});
+    }
+    zip.file('START_HERE.md', fill((window.TESR_EDGE_FILES || {})['START_HERE_DATASET.md'] || DS_README));
     writeProject(zip, 'tesr-project/');      // outside dataset/ so YOLO ignores it; Load Project reads it
-    const blob = await zip.generateAsync({type: 'blob'});
+    const blob = await zip.generateAsync({type: 'blob', platform: 'UNIX'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'tesr-dataset-yolo.zip';
+    const zipName = kit.slug + '-yolo-train.zip';
+    a.download = zipName;
     a.click();
-    m.textContent = 'Downloaded ' + n + ' photos (' + (n - nAug) + ' real + ' + nAug
-      + ' generated \u2728 \u2192 train only) as tesr-dataset-yolo.zip'
-      + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
-      + ' \u2014 open START_HERE.md inside: train on your PC or on a Jetson Orin Nano, then deploy.';
+    m.innerHTML = t('Downloaded <b>' + zipName + '</b>: ' + n + ' photos (' + (n - nAug) + ' real + ' + nAug
+      + ' generated \u2728 \u2192 train only)' + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
+      + ' \u2014 unzip, then double-click <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>)'
+      + ' \u2192 you get <b>' + kit.name + '.onnx</b> for ROI Studio.'
+      + (nStraightened ? ' ' + nStraightened + ' rotated box(es) were saved as plain boxes around them.' : ''),
+      T('dsDone', zipName, n, nAug, kit.name) + (nStraightened ? ' · กรอบที่หมุนไว้ ' + nStraightened
+        + ' กรอบ บันทึกเป็นกรอบตรงที่ครอบมัน' : ''));
   } catch (e) {
     m.textContent = 'Export failed: ' + e.message;
   }
