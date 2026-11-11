@@ -1,7 +1,15 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.6.1** (2026-11-12). Also shown on the web page (click the version badge).
+Current version: **v3.6.2** (2026-11-12). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.6.2 - 2026-11-12
+
+- 💾 Save Project names the file after the class (e.g. tesr-project-screw.zip) so project 1 / 2 are easy to tell apart
+- After ✂ start a new project: says which file in Downloads holds project 1 (AI #1) and that it is needed later
+
+- 💾 Save Project ตั้งชื่อไฟล์ตามคลาส (เช่น tesr-project-screw.zip) แยกโปรเจกต์ 1 / 2 ได้ง่าย
+- หลัง ✂ เริ่มโปรเจกต์ใหม่: บอกว่าไฟล์โปรเจกต์ 1 (AI #1) อยู่ใน Downloads ชื่ออะไร และต้องเก็บไว้
 
 ## v3.6.1 - 2026-11-12
 

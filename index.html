@@ -1322,7 +1322,10 @@ function projSig(){
 }
 async function saveProject(fileName){
   const m = document.getElementById('projMsg');
-  const name = (typeof fileName === 'string' && fileName) ? fileName : 'tesr-project.zip';
+  // named after the part class (tesr-project-screw.zip) so project 1 / project 2 zips are easy to tell apart
+  const main = classes.find(c => !bgCls(c));
+  const slug = main ? String(main.name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') : '';
+  const name = (typeof fileName === 'string' && fileName) ? fileName : 'tesr-project' + (slug ? '-' + slug : '') + '.zip';
   const real = classes.reduce((n,c)=>n + c.examples.filter(e=>!e.aug).length, 0) + pending.length;
   if (!real){ m.textContent = 'Nothing to save yet \u2014 collect some photos first.'; return false; }
   m.textContent = 'Building project zip...';
@@ -1895,7 +1898,7 @@ async function cropStartNew(save){
     renderClasses();
     document.getElementById('projMsg').innerHTML = t(
       `✂ New project: ${exs.length} crops of <b>${name}</b>`
-      + (savedAs ? ` (project 1 saved as <b>${savedAs}</b>)` : '')
+      + (savedAs ? ` (project 1 = AI #1 that finds ${name}, saved as <b>${savedAs}</b> in Downloads \u2014 keep it, training needs it)` : '')
       + (bgKeep.length ? `, Background photos kept (${bgKeep[0].examples.length})` : '')
       + ` — type the part class name below, e.g. <b>screw</b>, and press <b>+ Add Class</b>.`,
       T('cropNewDone', exs.length, name, savedAs));

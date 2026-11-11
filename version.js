@@ -12,9 +12,21 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "date": "2026-11-12",
   "history": [
+    {
+      "v": "3.6.2",
+      "date": "2026-11-12",
+      "th": [
+        "💾 Save Project ตั้งชื่อไฟล์ตามคลาส (เช่น tesr-project-screw.zip) แยกโปรเจกต์ 1 / 2 ได้ง่าย",
+        "หลัง ✂ เริ่มโปรเจกต์ใหม่: บอกว่าไฟล์โปรเจกต์ 1 (AI #1) อยู่ใน Downloads ชื่ออะไร และต้องเก็บไว้"
+      ],
+      "en": [
+        "💾 Save Project names the file after the class (e.g. tesr-project-screw.zip) so project 1 / 2 are easy to tell apart",
+        "After ✂ start a new project: says which file in Downloads holds project 1 (AI #1) and that it is needed later"
+      ]
+    },
     {
       "v": "3.6.1",
       "date": "2026-11-12",
