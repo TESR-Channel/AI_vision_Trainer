@@ -1,7 +1,17 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.2.0** (2026-10-28). Also shown on the web page (click the version badge).
+Current version: **v3.3.0** (2026-11-11). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.3.0 - 2026-11-11
+
+- ✂ Crop boxes (next to Download Dataset): cuts every box of one class (e.g. terminal) out as a new photo, with padding (default 10%) - for two-stage QC: AI #1 finds the part, AI #2 finds the screws in it, no Python script needed
+- One click starts a new Object Detection project from the crops (with a Save project 1 first button); type the class name, e.g. screw, + Add Class and every crop is in it, ready to box
+- Or download the crops as a .zip of plain JPGs, named after the source photo + box number
+
+- ✂ ตัดรูปตามกรอบ (Crop boxes) ข้างปุ่ม Download Dataset: ตัดทุกกรอบของคลาสที่เลือก (เช่น terminal) ออกมาเป็นรูปใหม่ พร้อมขอบเผื่อ (ค่าเริ่มต้น 10%) สำหรับ QC สองขั้น — AI #1 หาชิ้นงาน, AI #2 หาหัวน็อตในชิ้นงาน ไม่ต้องใช้สคริปต์ Python
+- เริ่มโปรเจกต์ Object Detection ใหม่จากรูปที่ตัดในคลิกเดียว (มีปุ่มบันทึกโปรเจกต์ 1 ก่อน) แล้วพิมพ์ชื่อคลาส เช่น screw + Add Class รูปทั้งหมดจะเข้าคลาสนั้นพร้อมลากกรอบ
+- หรือดาวน์โหลดรูปที่ตัดเป็น .zip (JPG ล้วน) ชื่อไฟล์ = รูปต้นฉบับ + ลำดับกรอบ
 
 ## v3.2.0 - 2026-10-28
 
