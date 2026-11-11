@@ -26,6 +26,6 @@ python -c "import tensorrt as t; print('TensorRT (for --trt):', t.__version__)" 
 echo
 echo "Done! Run:"
 echo "  source venv/bin/activate"
-echo "  python predict.py --camera csi    # ribbon camera (nvarguscamerasrc)"
-echo "  python predict.py --camera usb    # USB webcam"
+echo "  python predict.py --camera csi --source 0    # ribbon camera (nvarguscamerasrc)"
+echo "  python predict.py --camera usb --source 0    # USB webcam"
 echo "Optional GPU speed-up:  bash build_trt.sh   then   python predict.py --trt"

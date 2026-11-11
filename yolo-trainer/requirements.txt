@@ -4,3 +4,4 @@ opencv-python
 # ONNX export for TESR ROI Studio (python train.py --onnx NAME / export.py --target onnx)
 onnx>=1.12,<2
 onnxslim
+onnxruntime   # run.py on the .onnx (ROI Studio uses the same file)

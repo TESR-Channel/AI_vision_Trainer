@@ -1,7 +1,17 @@
 # Changelog - TESR AI Vision Web Trainer
 
-Current version: **v3.6.2** (2026-11-12). Also shown on the web page (click the version badge).
+Current version: **v3.7.0** (2026-11-12). Also shown on the web page (click the version badge).
 Generated from `version.js` by `tools/build_edge_files.py` - edit version.js, not this file.
+
+## v3.7.0 - 2026-11-12
+
+- One run command for every export: venv\Scripts\activate, then python <runner>.py --camera usb --source 0 - predict.py (web-trained), run.py (YOLO), tesr_vision_runner.py (ROI Studio)
+- The YOLO kit now uses a venv folder (was .venv) like the other exports; run.py takes --camera usb / csi / file / ip and picks the model itself (best.pt or NAME_yolo.onnx)
+- predict.py also takes --camera file / ip; READMEs, START_HERE, installers and web messages all show the same command
+
+- คำสั่งรันแบบเดียวกันทุกไฟล์ที่ส่งออก: venv\Scripts\activate แล้ว python <ตัวรัน>.py --camera usb --source 0 — predict.py (เทรนบนเว็บ) · run.py (YOLO) · tesr_vision_runner.py (ROI Studio)
+- ชุดเทรน YOLO ใช้โฟลเดอร์ venv (เดิม .venv) เหมือนไฟล์อื่น ๆ · run.py รับ --camera usb / csi / file / ip และเลือกโมเดลให้เอง (best.pt หรือ ชื่อ_yolo.onnx)
+- predict.py รับ --camera file / ip ด้วย · README, START_HERE, ไฟล์ติดตั้ง และข้อความบนเว็บใช้คำสั่งรูปแบบเดียวกัน
 
 ## v3.6.2 - 2026-11-12
 

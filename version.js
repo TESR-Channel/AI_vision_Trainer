@@ -12,9 +12,23 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.6.2",
+  "version": "3.7.0",
   "date": "2026-11-12",
   "history": [
+    {
+      "v": "3.7.0",
+      "date": "2026-11-12",
+      "th": [
+        "คำสั่งรันแบบเดียวกันทุกไฟล์ที่ส่งออก: venv\\Scripts\\activate แล้ว python <ตัวรัน>.py --camera usb --source 0 — predict.py (เทรนบนเว็บ) · run.py (YOLO) · tesr_vision_runner.py (ROI Studio)",
+        "ชุดเทรน YOLO ใช้โฟลเดอร์ venv (เดิม .venv) เหมือนไฟล์อื่น ๆ · run.py รับ --camera usb / csi / file / ip และเลือกโมเดลให้เอง (best.pt หรือ ชื่อ_yolo.onnx)",
+        "predict.py รับ --camera file / ip ด้วย · README, START_HERE, ไฟล์ติดตั้ง และข้อความบนเว็บใช้คำสั่งรูปแบบเดียวกัน"
+      ],
+      "en": [
+        "One run command for every export: venv\\Scripts\\activate, then python <runner>.py --camera usb --source 0 - predict.py (web-trained), run.py (YOLO), tesr_vision_runner.py (ROI Studio)",
+        "The YOLO kit now uses a venv folder (was .venv) like the other exports; run.py takes --camera usb / csi / file / ip and picks the model itself (best.pt or NAME_yolo.onnx)",
+        "predict.py also takes --camera file / ip; READMEs, START_HERE, installers and web messages all show the same command"
+      ]
+    },
     {
       "v": "3.6.2",
       "date": "2026-11-12",

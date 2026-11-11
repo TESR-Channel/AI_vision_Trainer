@@ -92,9 +92,9 @@ def main():
         "obb": "yolov8n-obb.pt",
         "classify": "yolov8n-cls.pt",
     }[task]
-    # one-click kit: keep the downloaded starting weights out of sight, inside .venv/
-    if not args.model and (HERE / ".venv").is_dir():
-        model_name = str(HERE / ".venv" / model_name)
+    # one-click kit: keep the downloaded starting weights out of sight, inside venv/
+    if not args.model and (HERE / "venv").is_dir():
+        model_name = str(HERE / "venv" / model_name)
     print("Task: %s  |  model: %s  |  data: %s" % (task, model_name, data_arg))
 
     from ultralytics import YOLO
@@ -109,7 +109,7 @@ def main():
         print("\nDone. best.pt copied to %s" % (HERE / "best.pt"))
         if args.onnx:
             export_onnx(HERE / "best.pt", args.imgsz, HERE / (args.onnx + ".onnx"))
-        print("Test it:   python run.py --conf 0.25")
+        print("Test it:   python run.py --camera usb --source 0")
         print("Deploy it: python export.py --target pi   (run on THIS computer)")
     else:
         print("Training finished but best.pt was not found at %s" % best)

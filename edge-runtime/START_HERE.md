@@ -10,7 +10,7 @@ Windows : ดับเบิลคลิก install_windows.bat
 Linux   : bash install_linux.sh
 
 venv\Scripts\activate          (Linux: source venv/bin/activate)
-python predict.py              ← เปิดกล้อง เห็นกรอบ + center (x,y) ทุกชิ้นในภาพ · กด q ออก
+python predict.py --camera usb --source 0              ← เปิดกล้อง เห็นกรอบ + center (x,y) ทุกชิ้นในภาพ · กด q ออก
 ```
 
 ## ขั้นที่ 2 — บนคอมพิวเตอร์: export ไปอุปกรณ์
@@ -28,7 +28,7 @@ python export.py --target jetson_nano         # Jetson Nano (JetPack 4, ทด�
 2. Pi     : bash install_pi.sh
    Jetson : bash install_jetson.sh
 3. source venv/bin/activate
-4. python predict.py                         # ไม่มีจอ (SSH): python predict.py --headless
+4. python predict.py --camera usb --source 0    # กล้องแพ: --camera csi --source 0 · ไม่มีจอ (SSH): เติม --headless
 ```
 Jetson อยากเร็วขึ้น: `bash build_trt.sh` (สร้าง TensorRT บนตัว Jetson เอง · บอกค่า Throughput FP32 vs FP16 ที่วัดได้จริง) แล้ว `python predict.py --trt`
 
@@ -81,8 +81,8 @@ for d in decode_multi(model, out, 0.3, 0.45):      # ทุกชิ้นใน
 
 ## English
 
-1. **Computer:** `install_windows.bat` (Linux: `bash install_linux.sh`) → `python predict.py`
+1. **Computer:** `install_windows.bat` (Linux: `bash install_linux.sh`) → `python predict.py --camera usb --source 0`
 2. **Computer:** `python export.py --target pi|jetson|jetson_nano` → `exports/tesr-model-<target>.zip`
-3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py` (Jetson speed-up: `bash build_trt.sh` → `python predict.py --trt`)
+3. **Device:** unzip → `bash install_pi.sh` / `bash install_jetson.sh` → `python predict.py --camera usb --source 0` (Jetson speed-up: `bash build_trt.sh` → `python predict.py --trt`)
 
 Need more accuracy or a bigger YOLO model? Web page → **Download Dataset (YOLO)**. That is a **different route** with its own `train.py` / `run.py` / `export.py` in `yolo-trainer/` — that `export.py` **converts** `best.pt`, this one **packages** `model.onnx`, and the device needs `ultralytics` too. Read `yolo-trainer/README.md` first.

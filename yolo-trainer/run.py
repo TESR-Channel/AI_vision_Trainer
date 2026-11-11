@@ -1,4 +1,4 @@
-"""TESR YOLO Trainer - Step 4: Run your trained YOLO model.
+r"""TESR YOLO Trainer - Step 4: Run your trained YOLO model.
 
 Works with every task - it reads the task from best.pt automatically:
   detection      -> boxes + crosshair + CENTER (x, y)px, multi-object
@@ -10,11 +10,16 @@ best candidate BELOW your confidence threshold, so "no answer" is never silent.
 A live FPS counter shows top-right of the window (printed periodically in
 --headless) - measure real speed on the real device.
 
-Usage:
-    python run.py                        # live webcam, press q to quit
-    python run.py --source photo.jpg     # single image
-    python run.py --conf 0.25            # lower threshold (small datasets)
-    python run.py --headless             # no window (SSH / edge device) - Ctrl+C to stop
+Usage - the same words as every TESR export (predict.py, tesr_vision_runner.py):
+    venv\Scripts\activate                              (Mac / Linux: source venv/bin/activate)
+    python run.py --camera usb --source 0              # USB webcam 0, press q to quit
+    python run.py --camera usb --source 2              # another webcam
+    python run.py --camera csi --source 0              # Pi / Jetson ribbon camera
+    python run.py --camera file --source clip.mp4      # a video file (or a photo: --source photo.jpg)
+    python run.py --camera ip --source rtsp://...      # an IP camera stream
+    python run.py --camera usb --source 0 --conf 0.25  # lower threshold (small datasets)
+    python run.py --camera usb --source 0 --headless   # no window (SSH / edge device) - Ctrl+C to stop
+The model is picked for you: best.pt, else the *_yolo.onnx next to this script (--weights to choose).
 
 Detection prints "name center=(x, y)px conf=..." - the numbers a robot arm,
 conveyor PLC, or MQTT pipeline needs.
@@ -28,6 +33,72 @@ import numpy as np
 
 COLOR = (76, 168, 201)[::-1]
 GRAY = (130, 130, 130)
+
+
+HERE = Path(__file__).resolve().parent
+
+
+def pick_weights(arg):
+    """--weights left out: best.pt, else the NAME_yolo.onnx the one-click kit wrote."""
+    if arg:
+        return arg
+    for cand in [HERE / "best.pt"] + sorted(HERE.glob("*_yolo.onnx")) + sorted(HERE.glob("*.onnx")):
+        if cand.is_file():
+            return str(cand)
+    raise SystemExit("No model here - train first (TRAIN_WINDOWS.bat / train_mac_linux.sh), "
+                     "or give one: --weights path/to/best.pt")
+
+
+def is_jetson():
+    return Path("/etc/nv_tegra_release").exists()
+
+
+class PiCam(object):
+    """Pi ribbon camera through Picamera2, with the cv2.VideoCapture read()/release() calls."""
+
+    def __init__(self, index):
+        try:
+            from picamera2 import Picamera2
+        except ImportError:
+            raise SystemExit("CSI camera on the Pi needs Picamera2:  sudo apt install -y python3-picamera2\n"
+                             "and a venv made with --system-site-packages")
+        self.cam = Picamera2(index)
+        self.cam.configure(self.cam.create_preview_configuration(
+            main={"format": "RGB888", "size": (1280, 720)}))      # RGB888 = BGR order for OpenCV
+        self.cam.start()
+        time.sleep(0.5)
+
+    def read(self):
+        return True, self.cam.capture_array()
+
+    def release(self):
+        self.cam.stop()
+
+
+def open_source(kind, source):
+    """Return something with read()/release() for --camera usb | csi | file | ip."""
+    if kind == "csi":
+        idx = int(source) if source.isdigit() else 0
+        if not is_jetson():
+            return PiCam(idx)
+        pipe = ("nvarguscamerasrc sensor-id=%d ! video/x-raw(memory:NVMM),width=1280,height=720,"
+                "framerate=30/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! "
+                "video/x-raw,format=BGR ! appsink drop=1 max-buffers=1" % idx)
+        cap = cv2.VideoCapture(pipe, cv2.CAP_GSTREAMER)
+        if not cap.isOpened():
+            raise SystemExit("Could not open the Jetson CSI camera - check the ribbon cable; "
+                             "OpenCV needs GStreamer (use the system python3-opencv)")
+        return cap
+    if kind in ("file", "ip"):
+        cap = cv2.VideoCapture(source)
+        if not cap.isOpened():
+            raise SystemExit("Could not open %s: %s" % ("stream" if kind == "ip" else "file", source))
+        return cap
+    cap = open_camera(int(source))
+    if cap is None:
+        raise SystemExit("Could not open camera %s - try --source 0, 1 or 2 "
+                         "and close any app using the camera" % source)
+    return cap
 
 
 def open_camera(idx):
@@ -108,8 +179,13 @@ def annotate(frame, result, task, conf_min):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", default="best.pt")
-    ap.add_argument("--source", default="0", help="image path, or camera index")
+    ap.add_argument("--weights", default=None,
+                    help="model file (default: best.pt, else the *_yolo.onnx in this folder)")
+    ap.add_argument("--camera", choices=["usb", "csi", "file", "ip"], default="usb",
+                    help="usb webcam, csi ribbon camera, file (photo / video), ip stream - "
+                         "the same words as predict.py and tesr_vision_runner.py")
+    ap.add_argument("--source", default="0",
+                    help="camera index for usb / csi (0, 1, 2), a path for file, a URL for ip")
     ap.add_argument("--conf", type=float, default=0.5)
     ap.add_argument("--headless", action="store_true",
                     help="no display window - print results only (SSH / edge). "
@@ -118,7 +194,9 @@ def main():
 
     from ultralytics import YOLO
 
-    model = YOLO(args.weights)
+    weights = pick_weights(args.weights)
+    print("Model: %s" % weights)
+    model = YOLO(weights)
     task = getattr(model, "task", "detect")
     if task not in ("classify", "obb"):
         task = "detect"
@@ -128,7 +206,9 @@ def main():
     # args.conf only decides what is drawn/printed as a real detection
     floor = min(0.1, args.conf)
 
-    if not args.source.isdigit():
+    is_photo = args.source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+    if is_photo or (not args.source.isdigit() and args.camera == "usb" and Path(args.source).is_file()
+                    and not args.source.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))):
         frame = cv2.imread(args.source)
         if frame is None:
             raise SystemExit("Could not read image: " + args.source)
@@ -148,11 +228,10 @@ def main():
             cv2.destroyAllWindows()
         return
 
-    cap = open_camera(int(args.source))
-    if cap is None:
-        raise SystemExit("Could not open camera %s - try --source 0 or --source 1 "
-                         "(index 2+ is often an IR/virtual camera), and close any "
-                         "app using the camera" % args.source)
+    kind = args.camera
+    if kind == "usb" and not args.source.isdigit():          # a path or URL given with the default
+        kind = "ip" if "://" in args.source else "file"
+    cap = open_source(kind, args.source)
     if args.headless:
         print("Headless mode - Ctrl+C to stop")
     fps, t_prev, n_frames = 0.0, time.time(), 0
