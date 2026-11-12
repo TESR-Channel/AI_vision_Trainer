@@ -12,9 +12,25 @@
    (config.json, project.json, model.onnx metadata, START_HERE.md).    The data below is strict JSON (double quotes) so tools can read it too. */
 window.TESR_APP = {
   "name": "TESR AI Vision Web Trainer",
-  "version": "3.7.0",
+  "version": "3.8.0",
   "date": "2026-11-12",
   "history": [
+    {
+      "v": "3.8.0",
+      "date": "2026-11-12",
+      "th": [
+        "กรอบเอียงตามชิ้นงาน (rotated box / OBB): กรอบที่หมุนให้พอดีชิ้นงานตอนติด label ตอนนี้สอนโมเดลให้ตีกรอบเอียงด้วย ทั้งโมเดลที่เทรนบนเว็บและโมเดล YOLO",
+        "ช่องใหม่ 'Box shape' ในการ์ดเทรน: Auto (มีกรอบหมุน > 5° = กรอบเอียง) / Upright / Rotated · บอกจำนวนกรอบที่หมุนไว้",
+        "เทรนบนเว็บ: detector เรียนมุมด้วย และสร้างภาพเอียง ±90° ให้อัตโนมัติ · model.onnx บอก task 'obb' ส่งมุมเป็นแถวสุดท้ายของ output0 (แบบ Ultralytics) · predict.py และ ROI Studio v1.11+ วาดกรอบเอียง",
+        "Download Dataset (YOLO): กรอบเอียง → label แบบ YOLO OBB เสมอ (เดิมบันทึกเป็นกรอบตรงถ้ากรอบหมุนน้อยกว่าครึ่ง) · train.py เทรน yolov8n-obb พร้อมหมุนภาพ ±90° · run.py วาดกรอบเอียง"
+      ],
+      "en": [
+        "Rotated boxes (OBB): a label you turned to fit a slanted object now teaches the model to draw a slanted box - for the web-trained model and the YOLO model alike",
+        "New 'Box shape' in the Train card: Auto (any box turned > 5 deg = rotated) / Upright / Rotated, with a count of the turned boxes",
+        "Web training: the detector also learns the angle and makes slanted copies (+/-90 deg) by itself; model.onnx says task 'obb' with the angle as the last row of output0 (Ultralytics layout); predict.py and ROI Studio v1.11+ draw rotated boxes",
+        "Download Dataset (YOLO): turned labels -> YOLO OBB labels (before: plain boxes unless at least half were turned); train.py trains yolov8n-obb with +/-90 deg random turns; run.py draws rotated boxes"
+      ]
+    },
     {
       "v": "3.7.0",
       "date": "2026-11-12",
