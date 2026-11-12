@@ -198,6 +198,8 @@ class Model(object):
         self.names = cfg["classes"]
         self.task = cfg.get("task", "classification")
         self.bg = set(cfg.get("background_classes", []))
+        # rotated boxes (trained on slanted labels): output0 carries the angle as its last row
+        self.obb = bool(cfg.get("rotated_boxes", False))
         p = cfg.get("prototypes")
         self.proto = None
         if p:
@@ -299,6 +301,8 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
     (steadier than picking one cell), and the mirrored frame's detections are fused in
     when available (out["output0_flip"])."""
     s = float(model.size)
+    nc = len(model.names)
+    obb = out["output0"].shape[1] == 4 + nc + 1          # rotated boxes: angle (radians) last
 
     def peaks(o):
         # keep a cell only where its class score is the local maximum of its 3x3
@@ -307,22 +311,24 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
         g = int(round(math.sqrt(n)))
         if g * g != n:
             return o.T
-        sc = o[4:].reshape(-1, g, g)
+        sc = o[4:4 + nc].reshape(-1, g, g)
         pad = np.pad(sc, ((0, 0), (1, 1), (1, 1)), constant_values=-1.0)
         nb = np.max([pad[:, 1 + dy:1 + dy + g, 1 + dx:1 + dx + g]
                      for dy in (-1, 0, 1) for dx in (-1, 0, 1)], axis=0)
         sc = np.where(sc >= nb, sc, 0.0)
         o = o.copy()
-        o[4:] = sc.reshape(-1, n)
+        o[4:4 + nc] = sc.reshape(-1, n)
         return o.T
 
     preds = [peaks(out["output0"][0])]
     if "output0_flip" in out:
         pf = peaks(out["output0_flip"][0]).copy()
         pf[:, 0] = s - pf[:, 0]
+        if obb:
+            pf[:, -1] = -pf[:, -1]                      # mirrored: the slant mirrors too
         preds.append(pf)
-    pred = np.concatenate(preds, 0)                     # [N, 4+nc]
-    scores = pred[:, 4:]
+    pred = np.concatenate(preds, 0)                     # [N, 4+nc(+1)]
+    scores = pred[:, 4:4 + nc]
     cls = np.argmax(scores, axis=1)
     conf = scores[np.arange(len(cls)), cls]
     bg = set(i for i, n in enumerate(model.names) if n in model.bg)
@@ -331,25 +337,32 @@ def decode_multi(model, out, min_conf, iou_thr, max_det=20):
     groups = []
     for k in keep:
         cx, cy, w, h = pred[k, :4] / s
-        box = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+        a = float(pred[k, -1]) if obb else 0.0
+        ew, eh = (abs(w * math.cos(a)) + abs(h * math.sin(a)), abs(w * math.sin(a)) + abs(h * math.cos(a))) if obb else (w, h)
+        box = [cx - ew / 2, cy - eh / 2, cx + ew / 2, cy + eh / 2]
         c = int(cls[k])
+        m = (float(conf[k]), [cx, cy, w, h], a)
         for g in groups:
             o = iou(g["xyxy"], box)
             inside = g["xyxy"][0] <= cx <= g["xyxy"][2] and g["xyxy"][1] <= cy <= g["xyxy"][3]
             # center inside a stronger box = same object (any class); else same-class overlap
             if inside or (g["cls"] == c and o > iou_thr) or o > 0.5:
-                g["m"].append((float(conf[k]), [cx, cy, w, h]))
+                g["m"].append(m)
                 break
         else:
             if len(groups) < max_det:
-                groups.append({"cls": c, "conf": float(conf[k]), "xyxy": box, "m": [(float(conf[k]), [cx, cy, w, h])]})
+                groups.append({"cls": c, "conf": float(conf[k]), "xyxy": box, "m": [m]})
     dets = []
     for g in groups:
         wts = np.array([m[0] for m in g["m"]]); bx = np.array([m[1] for m in g["m"]])
         b = (bx * wts[:, None]).sum(0) / wts.sum()
-        dets.append({"cls": g["cls"], "name": model.names[g["cls"]], "conf": g["conf"],
-                     "xyxy": [b[0] - b[2] / 2, b[1] - b[3] / 2, b[0] + b[2] / 2, b[1] + b[3] / 2],
-                     "box": [float(v) for v in b]})
+        d = {"cls": g["cls"], "name": model.names[g["cls"]], "conf": g["conf"],
+             "xyxy": [b[0] - b[2] / 2, b[1] - b[3] / 2, b[0] + b[2] / 2, b[1] + b[3] / 2],
+             "box": [float(v) for v in b]}
+        if obb:                                         # angle averaged as a doubled vector (a half turn = same box)
+            an = np.array([m[2] for m in g["m"]])
+            d["angle"] = float(math.atan2((np.sin(2 * an) * wts).sum(), (np.cos(2 * an) * wts).sum()) / 2)
+        dets.append(d)
     return dets
 
 
@@ -472,9 +485,11 @@ class MultiSteadier(object):
             used_t.add(ti)
             t["box"] = d["box"]
             t["hits"] += 1
+            if "angle" in d:
+                t["angle"] = _blend_angle(t.get("angle"), d["angle"])
             name, conf, box = t["st"].update(d["name"], d["conf"], d["box"], now)
             if box is not None and t["hits"] >= self.confirm:
-                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box, "angle": t.get("angle")})
         alive = []
         for ti, t in enumerate(self.tracks):
             if ti not in used_t:
@@ -483,7 +498,7 @@ class MultiSteadier(object):
                 name, conf, box = t["st"].update("none", 0.0, None, now)   # hold for a few frames
                 if box is None:
                     continue
-                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box, "angle": t.get("angle")})
             alive.append(t)
         self.tracks = alive
         for di, d in enumerate(dets):
@@ -491,16 +506,23 @@ class MultiSteadier(object):
                 continue
             st = Stabilizer(self.preset, self.hold)
             name, conf, box = st.update(d["name"], d["conf"], d["box"], now)
-            t = {"id": self._new_id(), "st": st, "box": d["box"], "hits": 1}
+            t = {"id": self._new_id(), "st": st, "box": d["box"], "hits": 1, "angle": d.get("angle")}
             self.tracks.append(t)
             if self.confirm <= 1:
-                out.append({"id": t["id"], "name": name, "conf": conf, "box": box})
+                out.append({"id": t["id"], "name": name, "conf": conf, "box": box, "angle": t["angle"]})
         out.sort(key=lambda r: r["id"])
         return out
 
 
+def _blend_angle(old, new, k=0.5):
+    if old is None:
+        return new
+    return math.atan2((1 - k) * math.sin(2 * old) + k * math.sin(2 * new),
+                      (1 - k) * math.cos(2 * old) + k * math.cos(2 * new)) / 2
+
+
 # --------------------------------------------------------------- drawing ---
-def draw_box(bgr, name, conf, box, idx=None):
+def draw_box(bgr, name, conf, box, idx=None, angle=None):
     """Box + center cross + one label:  #1 Orange 100% (128, 262)
     The label sits just above the box (inside it when there is no room above) and is
     always kept fully inside the image, on a dark strip so it stays readable."""
@@ -510,7 +532,15 @@ def draw_box(bgr, name, conf, box, idx=None):
     px, py = int(cx * W), int(cy * H)
     x1, y1 = int((cx - bw / 2) * W), int((cy - bh / 2) * H)
     x2, y2 = int((cx + bw / 2) * W), int((cy + bh / 2) * H)
-    cv2.rectangle(bgr, (x1, y1), (x2, y2), GOLD, 2)
+    if angle is None:
+        cv2.rectangle(bgr, (x1, y1), (x2, y2), GOLD, 2)
+    else:                                   # rotated box: w, h are its own sides, in the square the model saw
+        c, s = math.cos(angle), math.sin(angle)
+        q = [(cx + (dx * c - dy * s) / 2, cy + (dx * s + dy * c) / 2)
+             for dx, dy in ((-bw, -bh), (bw, -bh), (bw, bh), (-bw, bh))]
+        pts = np.array([[int(u * W), int(v * H)] for u, v in q], np.int32)
+        cv2.polylines(bgr, [pts], True, GOLD, 2, cv2.LINE_AA)
+        x1, y1 = int(pts[:, 0].min()), int(pts[:, 1].min())
     cv2.drawMarker(bgr, (px, py), GOLD, cv2.MARKER_CROSS, 18, 2)
     label = "%s %d%% (%d, %d)" % (name, round(conf * 100), px, py)
     if idx is not None:
@@ -664,7 +694,7 @@ def main():
             H, W = bgr.shape[:2]
             res = []
             for d in mstab.update(dets, start_conf=multi_conf):
-                px, py = draw_box(bgr, d["name"], d["conf"], d["box"], d["id"])
+                px, py = draw_box(bgr, d["name"], d["conf"], d["box"], d["id"], d.get("angle"))
                 res.append((d["id"], d["name"], round(d["conf"], 3), (px, py)))
             put(bgr, "%d object(s)" % len(res), H - 14, GOLD, 0.6)
             return res

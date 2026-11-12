@@ -81,6 +81,9 @@ def main():
     ap.add_argument("--onnx", default=None, metavar="NAME",
                     help="after training also export NAME.onnx next to this script "
                          "(ready for TESR ROI Studio: + Add a trained model)")
+    ap.add_argument("--degrees", type=float, default=None,
+                    help="random turn while training; rotated-box (OBB) datasets default to 90 "
+                         "so a few slanted photos teach every slant (0 = off)")
     args = ap.parse_args()
 
     data_dir = Path(args.data)
@@ -100,8 +103,13 @@ def main():
     from ultralytics import YOLO
 
     model = YOLO(model_name)
+    extra = {}
+    deg = args.degrees if args.degrees is not None else (90.0 if task == "obb" else None)
+    if deg:
+        extra["degrees"] = deg                  # rotated boxes turn with the picture
+        print("Random turn while training: +/-%g degrees" % deg)
     results = model.train(data=data_arg, epochs=args.epochs, imgsz=args.imgsz,
-                          batch=args.batch, device=args.device)
+                          batch=args.batch, device=args.device, **extra)
 
     best = Path(results.save_dir) / "weights" / "best.pt"
     if best.exists():

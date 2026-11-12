@@ -313,6 +313,13 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           <option value="14">14&times;14 &mdash; small, close parts</option>
         </select>
         <div class="hint" id="gridHint">Auto: 14&times;14 when the boxes are small or many per photo (screw heads, pins)</div></div>
+      <div id="shapeBox"><label class="tag">Box shape</label><br>
+        <select id="boxShape" style="width:230px" onchange="syncShapeHint()">
+          <option value="auto" selected>Auto</option>
+          <option value="upright">Upright boxes</option>
+          <option value="rotated">Rotated boxes (follow the slant)</option>
+        </select>
+        <div class="hint" id="shapeHint">Auto: rotated boxes when you turned any box to fit a slanted object</div></div>
       <button id="btnTrain" onclick="train()" style="margin-bottom:22px">&#129504; Train Now</button>
     </div>
     <div class="bar"><div id="tbar"></div></div>
@@ -818,6 +825,7 @@ function renderPending(){
     </div>`;
 }
 function renderClasses(){
+  try { syncShapeHint(); } catch (e) {}
   document.getElementById('newCls').placeholder = pending.length
     ? t('Part class name, e.g. screw', T('pendPlaceholder')) : 'Class name, e.g. jetson_board';
   document.getElementById('clsList').innerHTML = renderPending() + classes.map(c => {
@@ -2048,7 +2056,7 @@ async function predictEl(el){
     ft = tf.tidy(() => fm.slice([0, 0, 0, 0], [1, -1, -1, -1]).mean([1, 2]).squeeze());
     const rt = gridRows(dm); const rows = await rt.array(); rt.dispose(); fm.dispose(); if (dm !== fm) dm.dispose();
     const top = rs => { let best = rs[0], bm = -1;
-      for (const r of rs){ const m = Math.max(...r.slice(4)); if (m > bm){ bm = m; best = r; } } return best; };
+      for (const r of rs){ const m = Math.max(...r.slice(4, 4 + detHead.nc)); if (m > bm){ bm = m; best = r; } } return best; };
     const a = top(rows[0]), b = top(rows[1]);
     sBox = [(a[0] + 1 - b[0])/2, (a[1] + b[1])/2, (a[2] + b[2])/2, (a[3] + b[3])/2];
   } else if (boxHeadS){
@@ -2268,7 +2276,7 @@ async function train(){
       Xb.dispose(); Yb.dispose();
       boxHeadS = null;
       const gItems = usable.flatMap((c, i) => pick(c).map(e => ({e, ci: i, bg: TESR_ONNX.isBackground(c.name)})));
-      detHead = await trainGridDetector(gItems, names.length, clsShare + 15, wantFineGrid(gItems));
+      detHead = await trainGridDetector(gItems, names.length, clsShare + 15, wantFineGrid(gItems), wantRotated());
     } else { boxHeadS = null; detHead = null; }
     protos = computeProtos(usable.map(c => pick(c).map(e=>e.feat)), names);
     const secs = ((performance.now()-t0)/1000).toFixed(1);
@@ -2276,7 +2284,8 @@ async function train(){
     msg.textContent = `\u2705 Trained in ${secs}s on this computer \u2014 test it live below.`
       + (autoBg ? ' ' + t(`\u2728 ${autoBg} Background photos made from the parts of your photos with no box.`,
                           T('autoBgDone', autoBg)) : '')
-      + (detHead ? ' ' + t(`Detection grid ${detHead.grid}\u00d7${detHead.grid}.`, `ตารางตรวจจับ ${detHead.grid}\u00d7${detHead.grid}`) : '')
+      + (detHead ? ' ' + t(`Detection grid ${detHead.grid}\u00d7${detHead.grid}${detHead.obb ? ', rotated boxes' : ''}.`,
+                           `ตารางตรวจจับ ${detHead.grid}\u00d7${detHead.grid}${detHead.obb ? ' กรอบเอียงตามชิ้นงาน' : ''}`) : '')
       + (low.length ? ` \u26a0\ufe0f Below the recommended ${min}/class: ${low.join(', ')} \u2014 it will work, but more photos = better.` : '');
     document.getElementById('testCard').style.display = '';
     document.getElementById('btnExport').disabled = false;
@@ -2404,6 +2413,55 @@ async function trainSpatialBox(examples, p0){
    are cut and pasted 1-4 at a time (also half out of frame) into one image, so the
    model learns to find every object in view. Same math runs in model.onnx (output0). */
 const GRID_MULTI_CONF = 0.3;
+/* Rotated boxes (OBB): a label you turned to fit a slanted object teaches the model the
+   slant - the web detector learns an angle as well as the box, and Download Dataset
+   (YOLO) writes YOLO OBB labels, so both models draw rotated boxes. */
+const ROT_MIN = 5;                           // degrees off upright that count as "turned"
+function isTurned(b){
+  const a = ((boxAngle(b) % 90) + 90) % 90;   // 90 deg = upright with width/height swapped
+  return Math.min(a, 90 - a) > ROT_MIN;
+}
+function turnedCount(){
+  if (task !== 'detect') return {n: 0, rot: 0};
+  const bs = classes.filter(c => !bgCls(c)).flatMap(c => c.examples.filter(e => !e.aug && hasBox(e)).flatMap(boxesOf));
+  return {n: bs.length, rot: bs.filter(isTurned).length};
+}
+function wantRotated(){
+  if (task !== 'detect') return false;
+  const sel = (document.getElementById('boxShape') || {}).value || 'auto';
+  if (sel !== 'auto') return sel === 'rotated';
+  return turnedCount().rot > 0;
+}
+function syncShapeHint(){
+  const el = document.getElementById('shapeHint'); if (!el) return;
+  const c = turnedCount(), on = wantRotated();
+  el.innerHTML = t(`${c.rot} of ${c.n} boxes are turned &rarr; <b>${on ? 'rotated boxes' : 'upright boxes'}</b>`
+                   + (on ? ' (the model also learns the angle; slanted copies are made while training)' : ''),
+                   `กรอบที่หมุนไว้ ${c.rot} จาก ${c.n} กรอบ &rarr; <b>${on ? 'กรอบเอียงตามชิ้นงาน' : 'กรอบตรง'}</b>`
+                   + (on ? ' (โมเดลเรียนมุมด้วย ระหว่างเทรนสร้างภาพเอียงหลายมุมให้อัตโนมัติ)' : ''));
+}
+/* a rotated label -> [w, h, angle rad] in the 224x224 picture the model sees (the photo is
+   stretched to a square, so the slant is measured after that stretch) */
+function rotParams(b, W, H){
+  W = W || 640; H = H || 480;
+  const a = boxAngle(b) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const e1 = [b[2]*c, b[2]*W*s/H], e2 = [-b[3]*H*s/W, b[3]*c];
+  const L = Math.hypot(e1[0], e1[1]) || 1e-6;
+  return [L, Math.abs(e1[0]*e2[1] - e1[1]*e2[0]) / L, Math.atan2(e1[1], e1[0])];
+}
+function rotExtent(cx, cy, w, h, a){          // upright box [cx,cy,w,h] around a rotated one
+  const c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+  return [cx, cy, w*c + h*s, w*s + h*c];
+}
+function rotCorners(o){                      // [cx,cy,w,h,a] -> 4 corners (same as obb_corners in ROI Studio)
+  const [cx, cy, w, h, a] = o, c = Math.cos(a), s = Math.sin(a);
+  return [[-w,-h],[w,-h],[w,h],[-w,h]].map(([dx, dy]) => [cx + dx/2*c - dy/2*s, cy + dx/2*s + dy/2*c]);
+}
+function blendRot(o, n, k){                  // average two rotated boxes, angle by its doubled vector
+  if (!o) return n.slice();
+  const a = Math.atan2((1-k)*Math.sin(2*o[4]) + k*Math.sin(2*n[4]), (1-k)*Math.cos(2*o[4]) + k*Math.cos(2*n[4])) / 2;
+  return [0, 1, 2, 3].map(i => (1-k)*o[i] + k*n[i]).concat([a]);
+}
 /* 7x7 cells (stride 32) are ~32 px of the 224 picture: two screw heads 40 px
    apart land in neighbouring cells and the 3x3 peak rule keeps only one. For
    small, close parts the detector reads a 14x14 map instead - block 13's
@@ -2456,7 +2514,7 @@ function unionBox(bs){                       // upright box around several [cx,c
                        y1 = Math.min(y1, b[1] - b[3]/2); y2 = Math.max(y2, b[1] + b[3]/2); }
   return [(x1 + x2)/2, (y1 + y2)/2, x2 - x1, y2 - y1];
 }
-function gridBase(it){                       // one photo, moved / zoomed / mirrored, maybe half out of frame
+function gridBase(it, spin){                 // one photo, moved / zoomed / mirrored (/ turned), maybe half out of frame
   const c = document.createElement('canvas'); c.width = 224; c.height = 224;
   const x = c.getContext('2d'), b = it.box;    // it.box = union of all the photo's boxes (they move together)
   const s = 0.8 + Math.random()*0.4, bw = b[2]*s, bh = b[3]*s;
@@ -2466,21 +2524,31 @@ function gridBase(it){                       // one photo, moved / zoomed / mirr
   const ncx = rx[0] + Math.random()*(rx[1] - rx[0]), ncy = ry[0] + Math.random()*(ry[1] - ry[0]);
   const flip = Math.random() < 0.5;
   const bright = (0.75 + Math.random()*0.5).toFixed(2);
+  // rotated-box model: turn the whole picture now and then, so a few slanted labels
+  // teach every slant (the boxes turn with it)
+  const ang = spin && Math.random() < 0.6 ? (Math.random() - 0.5) * Math.PI : 0;
+  const rcx = flip ? 1 - ncx : ncx, rcy = ncy, ca = Math.cos(ang), sa = Math.sin(ang);
   x.fillStyle = 'rgb(114,114,114)'; x.fillRect(0, 0, 224, 224);
   x.save(); x.filter = `brightness(${bright})`;
+  if (ang){ x.translate(rcx*224, rcy*224); x.rotate(ang); x.translate(-rcx*224, -rcy*224); }
   if (flip){ x.translate(224, 0); x.scale(-1, 1); }
   x.translate((ncx - b[0]*s)*224, (ncy - b[1]*s)*224); x.scale(s, s);
   x.drawImage(it.cv, 0, 0); x.restore();
   // every box of the photo, same transform; a box whose centre left the frame is dropped
-  const objs = it.bg ? [] : it.boxes.map(o => {
-    const ox = ncx + (o[0] - b[0])*s, oy = ncy + (o[1] - b[1])*s;
-    return [flip ? 1 - ox : ox, oy, o[2]*s, o[3]*s];
+  const objs = it.bg ? [] : it.boxes.map((o, k) => {
+    let ox = ncx + (o[0] - b[0])*s, oy = ncy + (o[1] - b[1])*s;
+    if (flip) ox = 1 - ox;
+    if (ang){ const dx = ox - rcx, dy = oy - rcy; ox = rcx + dx*ca - dy*sa; oy = rcy + dx*sa + dy*ca; }
+    const r = it.rots && it.rots[k];
+    if (!r) return [ox, oy, o[2]*s, o[3]*s];
+    const rot = [r[0]*s, r[1]*s, (flip ? -r[2] : r[2]) + ang];
+    return [...rotExtent(ox, oy, rot[0], rot[1], rot[2]), rot];
   }).filter(o => o[0] > 0 && o[0] < 1 && o[1] > 0 && o[1] < 1)
-    .map(o => ({c: it.ci, box: visBox(o)}));
+    .map(o => o[4] ? {c: it.ci, box: visBox(o.slice(0, 4)), rot: o[4], at: [o[0], o[1]]} : {c: it.ci, box: visBox(o)});
   return {cv: c, x, objs, bright};
 }
-function gridMosaic(pool, fg){
-  const m = gridBase(pool[Math.floor(Math.random()*pool.length)]);
+function gridMosaic(pool, fg, spin){
+  const m = gridBase(pool[Math.floor(Math.random()*pool.length)], spin);
   const extra = Math.floor(Math.random()*6);
   const ovA = (a, b) => Math.max(0, Math.min(a[0] + a[2]/2, b[0] + b[2]/2) - Math.max(a[0] - a[2]/2, b[0] - b[2]/2))
                      * Math.max(0, Math.min(a[1] + a[3]/2, b[1] + b[3]/2) - Math.max(a[1] - a[3]/2, b[1] - b[3]/2));
@@ -2493,6 +2561,7 @@ function gridMosaic(pool, fg){
     // a neighbour cut in pieces would be an unlabeled object -> skip this cut instead
     const cut = [(sx + sw/2)/224, (sy + sh/2)/224, sw/224, sh/224];
     const inCut = it.boxes.filter(o => o === b || (o[0]*224 > sx && o[0]*224 < sx + sw && o[1]*224 > sy && o[1]*224 < sy + sh));
+    const rotOf = o => it.rots ? it.rots[it.boxes.indexOf(o)] : null;
     if (it.boxes.some(o => !inCut.includes(o) && ovA(o, cut) > 0.15*o[2]*o[3])) continue;
     const s = 0.75 + Math.random()*0.4, cw = Math.max(8, sw*s), ch = Math.max(8, sh*s);
     if (cw >= 200 || ch >= 200) continue;
@@ -2501,9 +2570,11 @@ function gridMosaic(pool, fg){
       const px = -cw*0.4 + Math.random()*(224 - cw*0.2), py = -ch*0.4 + Math.random()*(224 - ch*0.2);
       const flip = Math.random() < 0.5;
       const nb = inCut.map(o => {                  // source box -> pasted position (exact, also when mirrored)
-        const lx = (o[0]*224 - sx)*kx;
-        return [(flip ? px + cw - lx : px + lx)/224, (py + (o[1]*224 - sy)*ky)/224, o[2]*kx, o[3]*ky];
-      }).filter(o => o[0] > 0 && o[0] < 1 && o[1] > 0 && o[1] < 1).map(visBox);
+        const lx = (o[0]*224 - sx)*kx, r = rotOf(o);
+        const q = [(flip ? px + cw - lx : px + lx)/224, (py + (o[1]*224 - sy)*ky)/224, o[2]*kx, o[3]*ky];
+        if (r) q.push([r[0]*kx, r[1]*ky, flip ? -r[2] : r[2]]);
+        return q;
+      }).filter(o => o[0] > 0 && o[0] < 1 && o[1] > 0 && o[1] < 1);
       if (!nb.length) continue;
       const pb = visBox([(px + cw/2)/224, (py + ch/2)/224, cw/224, ch/224]);
       // objects may touch / overlap a little (real scenes do), but not hide each other
@@ -2514,7 +2585,8 @@ function gridMosaic(pool, fg){
       if (flip){ m.x.translate(px + cw, py); m.x.scale(-1, 1); m.x.drawImage(it.cv, sx, sy, sw, sh, 0, 0, cw, ch); }
       else m.x.drawImage(it.cv, sx, sy, sw, sh, px, py, cw, ch);
       m.x.restore();
-      for (const o of nb) m.objs.push({c: it.ci, box: o});
+      for (const o of nb) m.objs.push(o[4] ? {c: it.ci, box: visBox(o.slice(0, 4)), rot: o[4], at: [o[0], o[1]]}
+                                           : {c: it.ci, box: visBox(o)});
       break;
     }
   }
@@ -2531,18 +2603,23 @@ function gridMosaic(pool, fg){
   }
   return m;
 }
-function gridLoss(yT, yP, nc){
+function gridLoss(yT, yP, nc, obb){
   return tf.tidy(() => {
     const hm = yT.slice([0,0,0,0], [-1,-1,-1,nc]), bx = yT.slice([0,0,0,nc], [-1,-1,-1,4]);
-    const mk = yT.slice([0,0,0,nc+4], [-1,-1,-1,1]);
+    const mk = yT.slice([0,0,0,nc + (obb ? 6 : 4)], [-1,-1,-1,1]);
     const ph = tf.sigmoid(yP.slice([0,0,0,0], [-1,-1,-1,nc])), pb = tf.sigmoid(yP.slice([0,0,0,nc], [-1,-1,-1,4]));
     const pos = hm.mul(tf.log(ph.add(1e-6))).mul(tf.square(tf.sub(1, ph)));
     const neg = tf.sub(1, hm).mul(tf.log(tf.sub(1, ph).add(1e-6))).mul(tf.square(ph));
     const npos = tf.maximum(mk.sum(), 1);
-    return pos.add(neg).sum().neg().div(npos).add(mk.mul(pb.sub(bx).abs()).sum().div(npos).mul(5));
+    let L = pos.add(neg).sum().neg().div(npos).add(mk.mul(pb.sub(bx).abs()).sum().div(npos).mul(5));
+    if (obb){                                  // angle as (sin 2a, cos 2a): a box turned 180 deg is the same box
+      const ta = yT.slice([0,0,0,nc+4], [-1,-1,-1,2]), pa = tf.tanh(yP.slice([0,0,0,nc+4], [-1,-1,-1,2]));
+      L = L.add(mk.mul(pa.sub(ta).abs()).sum().div(npos).mul(3));
+    }
+    return L;
   });
 }
-async function trainGridDetector(items, nc, p0, fine){
+async function trainGridDetector(items, nc, p0, fine, obb){
   const node = fine && fineNode() ? fineNode() : fmapNode();
   const bar = document.getElementById('tbar');
   let src = items.filter(it => !it.e.aug);
@@ -2553,9 +2630,12 @@ async function trainGridDetector(items, nc, p0, fine){
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = it.e.src; });
     const cv = document.createElement('canvas'); cv.width = 224; cv.height = 224;
     cv.getContext('2d').drawImage(img, 0, 0, 224, 224);
-    const boxes = it.bg ? [] : boxesOf(it.e).map(b => ellipseBox(b, it.e.w, it.e.h));   // EVERY box of the photo
+    const raw = it.bg ? [] : boxesOf(it.e);
+    // rotated-box model: the upright box AROUND each turned label (whole object inside) + its slant
+    const boxes = raw.map(b => obb ? aabbBox(b, it.e.w, it.e.h) : ellipseBox(b, it.e.w, it.e.h));   // EVERY box of the photo
     if (!it.bg && !boxes.length) continue;
-    pool.push({cv, ci: it.ci, bg: it.bg, boxes, box: it.bg ? [0.5, 0.5, 1, 1] : unionBox(boxes)});
+    pool.push({cv, ci: it.ci, bg: it.bg, boxes, rots: obb ? raw.map(b => rotParams(b, it.e.w, it.e.h)) : null,
+               box: it.bg ? [0.5, 0.5, 1, 1] : unionBox(boxes)});
   }
   const fg = pool.filter(p => !p.bg);
   const N = Math.max(600, Math.min(1600, pool.length*40));
@@ -2565,7 +2645,7 @@ async function trainGridDetector(items, nc, p0, fine){
   for (let i = 0; i < N; i += BATCH){
     const n = Math.min(BATCH, N - i), cvs = [];
     for (let k = 0; k < n; k++){
-      const smp = ((i + k) % 3) ? gridMosaic(pool, fg) : gridBase(pool[(i + k) % pool.length]);
+      const smp = ((i + k) % 3) ? gridMosaic(pool, fg, obb) : gridBase(pool[(i + k) % pool.length], obb);
       cvs.push(smp.cv); targets.push(smp.objs);
     }
     const q = tf.tidy(() => {
@@ -2577,23 +2657,34 @@ async function trainGridDetector(items, nc, p0, fine){
     for (let k = 0; k < n; k++) feats.push(Uint8Array.from(d.subarray(k*per, (k + 1)*per)));
     bar.style.width = (p0 + 25*Math.min(1, (i + n)/N)) + '%';
     document.getElementById('tmetrics').innerHTML =
-      `<span>Multi-object detector ${fine ? '14\u00d714' : '7\u00d77'} <b>preparing ${Math.min(i + n, N)}/${N}</b></span>`;
+      `<span>Multi-object detector ${fine ? '14\u00d714' : '7\u00d77'}${obb ? ' \u21bb' : ''} <b>preparing ${Math.min(i + n, N)}/${N}</b></span>`;
     await tf.nextFrame();
   }
-  const D = nc + 5, tgt = targets.map(objs => {           // [G,G,nc | cx,cy,w,h | mask]
+  // [G,G, nc | cx,cy,w,h | (sin2a, cos2a) | mask]; rotated: w,h are the turned box's own sides
+  const D = nc + 5 + (obb ? 2 : 0), tgt = targets.map(objs => {
     const t = new Float32Array(G*G*D);
     for (const o of objs){
-      const j = Math.min(G - 1, Math.floor(o.box[0]*G)), i = Math.min(G - 1, Math.floor(o.box[1]*G)), at = (i*G + j)*D;
+      const [ox, oy] = o.at || o.box;
+      const j = Math.min(G - 1, Math.max(0, Math.floor(ox*G))), i = Math.min(G - 1, Math.max(0, Math.floor(oy*G))), at = (i*G + j)*D;
       t[at + o.c] = 1;
-      t[at + nc] = o.box[0]*G - j; t[at + nc + 1] = o.box[1]*G - i; t[at + nc + 2] = o.box[2]; t[at + nc + 3] = o.box[3];
-      t[at + nc + 4] = 1;
+      t[at + nc] = ox*G - j; t[at + nc + 1] = oy*G - i;
+      if (obb){
+        let [rw, rh, ra] = o.rot || [o.box[2], o.box[3], 0];
+        // one answer per look: the long side is always "w" (an upright box drawn tall and the
+        // same box turned 90 deg with its sides swapped are the same thing - the model must
+        // not be taught both)
+        if (rh > rw){ [rw, rh] = [rh, rw]; ra += Math.PI/2; }
+        t[at + nc + 2] = Math.min(1, rw); t[at + nc + 3] = Math.min(1, rh);
+        t[at + nc + 4] = Math.sin(2*ra); t[at + nc + 5] = Math.cos(2*ra);
+      } else { t[at + nc + 2] = o.box[2]; t[at + nc + 3] = o.box[3]; }
+      t[at + D - 1] = 1;
     }
     return t;
   });
   const model = tf.sequential({layers:[
     tf.layers.conv2d({inputShape:[G, G, C], filters:64, kernelSize:1, activation:'relu'}),
     tf.layers.conv2d({filters:64, kernelSize:3, padding:'same', activation:'relu'}),
-    tf.layers.conv2d({filters:nc + 4, kernelSize:1}),
+    tf.layers.conv2d({filters:nc + 4 + (obb ? 2 : 0), kernelSize:1}),
   ]});
   const opt = tf.train.adam(0.001);
   const BS = 32, nb = Math.ceil(N/BS), epochs = Math.max(20, Math.min(80, Math.round(2400/nb)));
@@ -2610,7 +2701,7 @@ async function trainGridDetector(items, nc, p0, fine){
       }
       const xs = tf.tensor4d(xb.subarray(0, n*per), [n, G, G, C]);
       const ys = tf.tensor4d(yb.subarray(0, n*G*G*D), [n, G, G, D]);
-      const l = opt.minimize(() => gridLoss(ys, model.apply(xs), nc), true);
+      const l = opt.minimize(() => gridLoss(ys, model.apply(xs), nc, obb), true);
       tot += (await l.data())[0]; l.dispose(); xs.dispose(); ys.dispose();
     }
     bar.style.width = (p0 + 25 + (100 - p0 - 25)*(ep + 1)/epochs) + '%';
@@ -2619,27 +2710,34 @@ async function trainGridDetector(items, nc, p0, fine){
       `<span>loss <b>${(tot/nb).toFixed(3)}</b></span><span>${N} mosaic samples</span>`;
     await tf.nextFrame();
   }
-  model.nc = nc;
+  model.nc = nc; model.obb = !!obb;
   model.node = node; model.fine = node !== fmapNode(); model.grid = G;
   return model;
 }
 /* raw grid output -> [{cls, name, conf, box:[cx,cy,w,h] 0..1}] - same as decode_multi() in predict.py */
-function gridRows(fm){                       // fm [n,G,G,C] -> per image Float32 rows [G*G][4+nc] like output0
+function gridRows(fm){                       // fm [n,G,G,C] -> per image Float32 rows [G*G][4+nc(+1 angle)] like output0
   return tf.tidy(() => {
-    const o = tf.sigmoid(detHead.predict(fm)), nc = detHead.nc, G = o.shape[1];
+    const raw = detHead.predict(fm), nc = detHead.nc, G = raw.shape[1];
+    const o = tf.sigmoid(raw.slice([0,0,0,0], [-1,-1,-1,nc + 4]));
     const sc = o.slice([0,0,0,0], [-1,-1,-1,nc]), bx = o.slice([0,0,0,nc], [-1,-1,-1,4]);
     const gx = tf.tensor(Array.from({length: G*G}, (_, k) => k % G), [1, G, G, 1]);
     const gy = tf.tensor(Array.from({length: G*G}, (_, k) => Math.floor(k / G)), [1, G, G, 1]);
     const cx = bx.slice([0,0,0,0], [-1,-1,-1,1]).add(gx).div(G), cy = bx.slice([0,0,0,1], [-1,-1,-1,1]).add(gy).div(G);
-    return tf.concat([cx, cy, bx.slice([0,0,0,2], [-1,-1,-1,2]), sc], 3).reshape([o.shape[0], G*G, 4 + nc]);
+    const parts = [cx, cy, bx.slice([0,0,0,2], [-1,-1,-1,2]), sc];
+    if (detHead.obb){                         // angle = atan2(s, c)/2, written without atan2 (same as model.onnx)
+      const s = tf.tanh(raw.slice([0,0,0,nc+4], [-1,-1,-1,1])), c = tf.tanh(raw.slice([0,0,0,nc+5], [-1,-1,-1,1]));
+      parts.push(tf.atan(s.div(tf.sqrt(s.square().add(c.square())).add(c).add(1e-6))));
+    }
+    return tf.concat(parts, 3).reshape([o.shape[0], G*G, 4 + nc + (detHead.obb ? 1 : 0)]);
   });
 }
 function gridPeaks(rows){                  // keep a cell only where its class score is the 3x3 local max
   const N = rows.length, G = Math.round(Math.sqrt(N));
   if (G*G !== N) return rows;
+  const end = 4 + (detHead ? detHead.nc : rows[0].length - 4);   // the angle (rotated boxes) is no class
   return rows.map((r, k) => {
     const i = Math.floor(k / G), j = k % G, q = r.slice();
-    for (let c = 4; c < r.length; c++){
+    for (let c = 4; c < end; c++){
       let mx = -1;
       for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++){
         const a = i + di, b = j + dj;
@@ -2655,7 +2753,9 @@ function gridDecode(rows, thr){            // same algorithm as decode_multi() i
   for (const r of rows){
     let c = 0; for (let k = 1; k < nc; k++) if (r[4 + k] > r[4 + c]) c = k;
     if (r[4 + c] < thr || TESR_ONNX.isBackground(names[c])) continue;
-    cand.push({cls: c, conf: r[4 + c], box: [r[0], r[1], r[2], r[3]]});
+    const d = {cls: c, conf: r[4 + c], box: [r[0], r[1], r[2], r[3]]};
+    if (r.length > 4 + nc){ d.rot = [r[0], r[1], r[2], r[3], r[4 + nc]]; d.box = rotExtent(...d.rot); }
+    cand.push(d);
   }
   cand.sort((a, b) => b.conf - a.conf);
   const groups = [];
@@ -2670,7 +2770,15 @@ function gridDecode(rows, thr){            // same algorithm as decode_multi() i
   return groups.map(g => {                   // score-weighted box of every cell that saw this object
     const W = g.m.reduce((a, d) => a + d.conf, 0), b = [0, 0, 0, 0];
     g.m.forEach(d => d.box.forEach((v, k) => b[k] += v*d.conf/W));
-    return {cls: g.cls, name: names[g.cls], conf: g.conf, box: b};
+    const out = {cls: g.cls, name: names[g.cls], conf: g.conf, box: b};
+    if (g.m[0].rot){                          // rotated: same weights, angle by its doubled vector
+      const r = [0, 0, 0, 0]; let ss = 0, cc = 0;
+      g.m.forEach(d => { for (let k = 0; k < 4; k++) r[k] += d.rot[k]*d.conf/W;
+                         ss += Math.sin(2*d.rot[4])*d.conf; cc += Math.cos(2*d.rot[4])*d.conf; });
+      out.rot = r.concat([Math.atan2(ss, cc)/2]);
+      out.box = rotExtent(...out.rot);
+    }
+    return out;
   });
 }
 /* many objects at once: each one tracked and smoothed with its own Steadier (like predict.py) */
@@ -2693,8 +2801,9 @@ class MultiSteadier {                       // same rules as MultiSteadier in pr
       const t = this.tracks[ti], d = dets[di];
       if (d.conf < startConf) continue;          // weak: keeps the object, never moves / shows a box
       ut.add(ti); t.box = d.box; t.hits++;
+      if (d.rot) t.rot = blendRot(t.rot, d.rot, 0.5);
       const r = t.st.update(d.name, d.conf, d.box);
-      if (r.box && t.hits >= this.confirm) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+      if (r.box && t.hits >= this.confirm) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls, rot: MultiSteadier.rotAt(t, r.box)});
     }
     const alive = [];
     this.tracks.forEach((t, ti) => {
@@ -2702,19 +2811,23 @@ class MultiSteadier {                       // same rules as MultiSteadier in pr
         if (t.hits < this.confirm) return;                     // never confirmed: drop
         const r = t.st.update('none', 0, null);
         if (!r.box) return;
-        out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: t.cls});
+        out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: t.cls, rot: MultiSteadier.rotAt(t, r.box)});
       }
       alive.push(t);
     });
     this.tracks = alive;
     dets.forEach((d, di) => {
       if (ud.has(di) || d.conf < startConf) return;
-      const t = {id: this.newId(), st: new Steadier(this.preset, this.hold), box: d.box, cls: d.cls, hits: 1};
+      const t = {id: this.newId(), st: new Steadier(this.preset, this.hold), box: d.box, cls: d.cls, hits: 1,
+                 rot: d.rot ? d.rot.slice() : null};
       const r = t.st.update(d.name, d.conf, d.box);
       this.tracks.push(t);
-      if (this.confirm <= 1) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls});
+      if (this.confirm <= 1) out.push({id: t.id, name: r.name, conf: r.conf, box: r.box, cls: d.cls, rot: MultiSteadier.rotAt(t, r.box)});
     });
     return out.sort((a, b) => a.id - b.id);
+  }
+  static rotAt(t, box){                       // the track's smoothed slant, centred on the steadied box
+    return t.rot && box ? [box[0], box[1], t.rot[2], t.rot[3], t.rot[4]] : null;
   }
 }
 let multiSteadier = null;
@@ -2809,7 +2922,10 @@ function renderLoopW(){
         const [cx, cy, w, h] = d.box, col = MULTI_COLORS[d.cls % MULTI_COLORS.length];
         const x = (cx - w/2)*tv.width, y = (cy - h/2)*tv.height;
         tx.strokeStyle = col; tx.lineWidth = 3;
-        tx.strokeRect(x, y, w*tv.width, h*tv.height);
+        if (d.rot){                             // rotated box: follows the slant of the object
+          const q = rotCorners(d.rot).map(([u, v]) => [u*tv.width, v*tv.height]);
+          tx.beginPath(); q.forEach(([u, v], i) => i ? tx.lineTo(u, v) : tx.moveTo(u, v)); tx.closePath(); tx.stroke();
+        } else tx.strokeRect(x, y, w*tv.width, h*tv.height);
         const px = cx*tv.width, py = cy*tv.height;
         tx.beginPath(); tx.moveTo(px-10,py); tx.lineTo(px+10,py);
         tx.moveTo(px,py-10); tx.lineTo(px,py+10); tx.lineWidth = 2; tx.stroke();
@@ -2918,7 +3034,8 @@ async function predictMulti(el){
     const [fm, dm] = tf.tidy(() => { const x = bbInput(el);
       return detMaps(tf.concat([x, tf.image.flipLeftRight(x)], 0)); });
     const rt = gridRows(dm), rows = await rt.array(); rt.dispose(); fm.dispose(); if (dm !== fm) dm.dispose();
-    const mir = gridPeaks(rows[1]).map(r => { const q = r.slice(); q[0] = 1 - q[0]; return q; });
+    const mir = gridPeaks(rows[1]).map(r => { const q = r.slice(); q[0] = 1 - q[0];
+      if (detHead.obb) q[q.length - 1] = -q[q.length - 1]; return q; });
     // weak detections (>= half the threshold) may only keep an already-tracked object alive
     return gridDecode(gridPeaks(rows[0]).concat(mir), GRID_MULTI_CONF*0.5);
   }
@@ -3060,6 +3177,9 @@ async function selfCheck(oc){
     rows.forEach((r, k) => {                       // output0 is in 224-px units, browser rows 0..1
       for (let a = 0; a < 4; a++) d = Math.max(d, Math.abs(r[a] - o[a*NN + k]/224));
       for (let c = 0; c < nc; c++) d = Math.max(d, Math.abs(r[4 + c] - o[(4 + c)*NN + k]));
+      if (detHead.obb){                            // angle: a half-turn apart is the same box
+        const da = Math.abs(r[4 + nc] - o[(4 + nc)*NN + k]); d = Math.max(d, Math.min(da, Math.abs(da - Math.PI)));
+      }
     });
   }
   if (boxHeadS && task === 'detect' && out.box){
@@ -3108,6 +3228,7 @@ function deployConfig(oc){
     min_conf: +document.getElementById('minConf').value,
     steady: {preset: STEADY_DEFAULT, hold: STEADY_HOLD, mirror_average: 'auto'},
     multi_conf: GRID_MULTI_CONF, detector: detHead ? 'grid' + detHead.grid : 'single',
+    rotated_boxes: !!(detHead && detHead.obb),
     target: document.getElementById('tgt').value,
     camera: document.getElementById('tgtCam').value, camera_index: 0,
     prototypes: protos ? {names: protos.names, threshold: +protos.thr.toFixed(3),
@@ -3295,12 +3416,12 @@ async function exportDataset(){
     return;
   }
   m.textContent = 'Building dataset zip...';
-  // mostly rotated boxes -> the WHOLE export becomes YOLO OBB (formats can't mix). A few rotated boxes
-  // (often a stray scroll in the label dialog) -> plain boxes around them: plain YOLO is what
-  // ROI Studio and most runners read, and a round screw head looks the same at any angle.
+  // Box shape (Train card): turned labels -> the WHOLE export is YOLO OBB (formats can't mix), so the
+  // YOLO model draws rotated boxes too; ROI Studio v1.11+ reads them. "Upright boxes" -> each turned
+  // label is saved as the plain box around it.
   const allB = wantBox ? classes.flatMap(c => c.examples.filter(pickOk).flatMap(boxesOf)) : [];
-  const nRot = allB.filter(b => Math.abs(boxAngle(b)) > 3).length;
-  const hasOBB = wantBox && nRot > 0 && nRot >= allB.length / 2;
+  const nRot = allB.filter(b => Math.abs(boxAngle(b)) > 0.5).length;
+  const hasOBB = wantBox && wantRotated();
   const nStraightened = hasOBB ? 0 : nRot;
   try {
     const zip = new JSZip();
@@ -3374,12 +3495,12 @@ async function exportDataset(){
     a.download = zipName;
     a.click();
     m.innerHTML = t('Downloaded <b>' + zipName + '</b>: ' + n + ' photos (' + (n - nAug) + ' real + ' + nAug
-      + ' generated \u2728 \u2192 train only)' + (hasOBB ? ' (rotated \u2192 YOLO OBB labels)' : '')
+      + ' generated \u2728 \u2192 train only)' + (hasOBB ? ' (rotated boxes \u2192 YOLO OBB: the model draws slanted boxes)' : '')
       + ' \u2014 unzip, then double-click <b>TRAIN_WINDOWS.bat</b> (Mac / Linux / Jetson: <code>bash train_mac_linux.sh</code>)'
       + ' \u2192 you get <b>' + kit.name + '.onnx</b> for ROI Studio. 1 zip = 1 model (two AIs: download the other project too).'
       + (nStraightened ? ' ' + nStraightened + ' rotated box(es) were saved as plain boxes around them.' : ''),
-      T('dsDone', zipName, n, nAug, kit.name) + (nStraightened ? ' · กรอบที่หมุนไว้ ' + nStraightened
-        + ' กรอบ บันทึกเป็นกรอบตรงที่ครอบมัน' : ''));
+      T('dsDone', zipName, n, nAug, kit.name) + (hasOBB ? ' · กรอบเอียง → dataset แบบ YOLO OBB โมเดลจะตีกรอบเอียงตามชิ้นงาน' : '')
+        + (nStraightened ? ' · กรอบที่หมุนไว้ ' + nStraightened + ' กรอบ บันทึกเป็นกรอบตรงที่ครอบมัน' : ''));
   } catch (e) {
     m.textContent = 'Export failed: ' + e.message;
   }

@@ -15,6 +15,8 @@
    detection:
      output output0 [1,4+nc,N]  YOLO-style candidates (output #0)
                     cx,cy,w,h in 224-pixel space + per-class scores,
+                    rotated boxes (metadata task "obb"): [1,4+nc+1,N], the
+                    angle in radians last, like an Ultralytics OBB export,
                     background classes zeroed, similarity gate applied.
                     Same layout as an Ultralytics export -> TESR ROI Studio
                     and any YOLO decoder (conf filter + NMS) can read it.
@@ -329,7 +331,18 @@
       else if (act !== 'linear') throw new Error('unsupported grid activation ' + act);
       cin = co;
     });
-    if (cin !== nc + 4) throw new Error('grid head must output nc+4 channels');
+    const obb = !!seq.obb;
+    if (cin !== nc + 4 + (obb ? 2 : 0)) throw new Error('grid head must output nc+4' + (obb ? '+2' : '') + ' channels');
+    let ang = null;
+    if (obb) {                     // rotated boxes: 2 extra channels -> tanh -> (sin 2a, cos 2a) -> a
+      const [main, ac] = g.op('Split', [x, g.i64('split', [nc + 4, 2])], {axis: 1}, 'grid_rot', 2);
+      x = main;
+      const t = g.op('Tanh', [ac]);
+      const [sn, cs] = g.op('Split', [t, g.i64('split', [1, 1])], {axis: 1}, 'grid_sc', 2);
+      // a = atan2(s, c) / 2 = atan(s / (sqrt(s^2 + c^2) + c))  (ONNX has no Atan2)
+      const r = g.op('Sqrt', [g.op('Add', [g.op('Mul', [sn, sn]), g.op('Mul', [cs, cs])])]);
+      ang = g.op('Atan', [g.op('Div', [sn, g.op('Add', [g.op('Add', [r, cs]), g.f('eps_a', [], [1e-6])])])]);
+    }
     const sig = g.op('Sigmoid', [x]);
     const [sc, bx] = g.op('Split', [sig, g.i64('split', [nc, 4])], {axis: 1}, 'grid_part', 2);
     const off = new Float32Array(4 * G * G);
@@ -338,7 +351,8 @@
     }
     const boxes = g.op('Add', [g.op('Mul', [bx, g.f('grid_scale', [1, 4, 1, 1], [S / G, S / G, S, S])]),
                                g.f('grid_off', [1, 4, G, G], off)]);
-    const out = g.op('Reshape', [g.op('Concat', [boxes, sc], {axis: 1}), g.i64('shape', [1, 4 + nc, G * G])]);
+    const out = g.op('Reshape', [g.op('Concat', ang ? [boxes, sc, ang] : [boxes, sc], {axis: 1}),
+                                 g.i64('shape', [1, 4 + nc + (ang ? 1 : 0), G * G])]);
     // strongest cell over all classes -> its box, normalized 0..1
     const flatS = g.op('Reshape', [sc, g.i64('shape', [1, nc, G * G])]);
     const best = g.op('ArgMax', [g.op('ReduceMax', [flatS], {axes: {ints: [1]}, keepdims: 0})], {axis: 1, keepdims: 1});
@@ -434,9 +448,9 @@
     if (task === 'detect' && detHead) {
       // multi-object grid detector: every 7x7 cell -> (cx, cy, w, h) + per-class score
       const dm = dmap || fmap, Cd = dm.shape[0], Gd = dm.shape[1];   // 14x14 map for small parts
-      const det = emitGridHead(g, dm.name, Cd, Gd, detHead, nc, size);   // [1,4+nc,Gd*Gd]
+      const det = emitGridHead(g, dm.name, Cd, Gd, detHead, nc, size);   // [1,4+nc(+1 angle),Gd*Gd]
       g.out('Identity', [det.out], {}, 'output0');
-      outputs.push({name: 'output0', dims: [1, 4 + nc, Gd * Gd]});
+      outputs.push({name: 'output0', dims: [1, 4 + nc + (detHead.obb ? 1 : 0), Gd * Gd]});
       g.out('Identity', [emitHead(g, feat, clsL, 'softmax')], {}, 'probs');
       outputs.push({name: 'probs', dims: [1, nc]});
       g.out('Identity', [det.topBox], {}, 'box');                         // box of the strongest cell
@@ -499,7 +513,8 @@
 
     const meta = {
       names: JSON.stringify(Object.fromEntries(names.map((n, i) => [i, n]))),
-      task: task === 'detect' ? 'detect' : 'classify',
+      // "obb" = rotated boxes, Ultralytics layout: cx,cy,w,h + scores + angle (radians) last
+      task: task === 'detect' ? (detHead && detHead.obb ? 'obb' : 'detect') : 'classify',
       imgsz: JSON.stringify([size, size]),
       preprocess: 'RGB, resize (stretch) to 224x224, /255, NCHW',
       input_scale: String(scale), input_min: String(nMin),
